@@ -79,13 +79,15 @@ Plug 'ywsrock/claude-complete.nvim'
 | `:ClaudeComplete setup` | API キーを保存 |
 | `:ClaudeComplete backend claude\|copilot` | Claude / GitHub 純正サーバーを選ぶ |
 | `:ClaudeComplete toggle` | もう一方に切り替え |
+| `:ClaudeComplete model [id]` | キーで使える全モデル（Models API から取得）から選ぶ |
 | `:ClaudeComplete info` | バックエンド、キーの読み込み元、パスを表示 |
 | `:ClaudeComplete logout` | 保存した API キーを削除 |
 | `:Copilot status` | `Ready`、または問題（キー未設定、残高不足など） |
-| `:Copilot model` | Claude Haiku 5.5（既定）/ Claude Sonnet 5.5 を選ぶ |
 | `:Copilot log` | リクエストごとのレイテンシ（`ttft`, `total`）とエラー |
 
-選んだバックエンドは次回の起動時も使われる。`copilot` バックエンドには GitHub Copilot の契約と、
+選んだバックエンドとモデルは次回の起動時も使われる。各モデルには、そのモデルが受け付ける
+最速の設定（可能なら thinking 無効、effort low）が自動で使われる。実測では既定の Haiku 5.5 が最も速い。
+`copilot` バックエンドには GitHub Copilot の契約と、
 初回だけ `:Copilot setup` が必要。
 
 ## 設定
@@ -96,7 +98,7 @@ Plug 'ywsrock/claude-complete.nvim'
 require('claude_complete').setup({
   default_backend = 'claude', -- :ClaudeComplete backend で選ぶまでの既定
   server = {
-    model = 'claude-haiku-5-5', -- または 'claude-sonnet-5-5'
+    model = 'claude-haiku-5-5', -- :ClaudeComplete model に出る任意の id（そちらの選択が優先）
     debounceMs = 100,           -- 最後のキー入力から待つ時間
     maxLines = 8,               -- 複数行の候補の最大行数
     maxTokens = 256,

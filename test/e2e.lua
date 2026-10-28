@@ -52,7 +52,18 @@ vim.cmd('ClaudeComplete toggle')
 check('toggle returns to claude', vim.g.claude_complete_backend == 'claude' and vim.g.copilot_command ~= nil)
 check('server restarted', status():find('Ready') ~= nil, status())
 
--- 5. Ghost text and <Tab> accept in insert mode.
+-- 5. Model listing and selection.
+local models = cc.list_models() or {}
+check('model list from server', #models == 2 and models[1].current == true, models)
+vim.g.copilot_settings = { selectedCompletionModel = 'claude-old' }
+vim.cmd('ClaudeComplete model mock-2')
+check('model is saved', cc.saved_model() == 'mock-2', cc.saved_model())
+check('stale :Copilot model choice dropped', vim.g.copilot_settings.selectedCompletionModel == nil, vim.g.copilot_settings)
+vim.wait(100)
+local current = vim.tbl_filter(function(m) return m.current end, cc.list_models() or {})
+check('server uses the selected model', current[1] and current[1].id == 'mock-2', current)
+
+-- 6. Ghost text and <Tab> accept in insert mode.
 vim.cmd('enew')
 vim.bo.filetype = 'javascript'
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'function add(a, b) {', '  return ' })

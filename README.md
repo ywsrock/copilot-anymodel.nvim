@@ -83,13 +83,15 @@ request.
 | `:ClaudeComplete setup` | Save your Anthropic API key |
 | `:ClaudeComplete backend claude\|copilot` | Use Claude, or GitHub's own Copilot server |
 | `:ClaudeComplete toggle` | Switch to the other backend |
+| `:ClaudeComplete model [id]` | Pick from every model your key can use (listed live from the Models API) |
 | `:ClaudeComplete info` | Show backend, key source and paths |
 | `:ClaudeComplete logout` | Delete the saved API key |
 | `:Copilot status` | `Ready`, or what is wrong (missing key, no credit, …) |
-| `:Copilot model` | Pick Claude Haiku 5.5 (default) or Claude Sonnet 5.5 |
 | `:Copilot log` | Per-request latency (`ttft`, `total`) and errors |
 
-The backend choice is remembered across sessions. The `copilot` backend needs a
+The backend and model choices are remembered across sessions. Each model gets the
+fastest settings it accepts (thinking off where possible, low effort); Haiku 5.5,
+the default, is the quickest in practice. The `copilot` backend needs a
 GitHub Copilot subscription and `:Copilot setup` once.
 
 ## Configuration
@@ -100,7 +102,7 @@ Everything is optional.
 require('claude_complete').setup({
   default_backend = 'claude', -- until :ClaudeComplete backend picks another
   server = {
-    model = 'claude-haiku-5-5', -- or 'claude-sonnet-5-5'
+    model = 'claude-haiku-5-5', -- any id from :ClaudeComplete model (which overrides this)
     debounceMs = 100,           -- wait after the last keystroke
     maxLines = 8,               -- longest multi-line suggestion
     maxTokens = 256,

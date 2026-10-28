@@ -28287,20 +28287,45 @@ function createCredentials({ keyFile = null, env = process.env } = {}) {
 var claude_exports = {};
 __export(claude_exports, {
   createProvider: () => createProvider,
-  models: () => models
+  models: () => models,
+  speedParams: () => speedParams
 });
 init_sdk();
 var models = [
   { id: "claude-haiku-5-5", modelName: "Claude Haiku 5.5" },
   { id: "claude-sonnet-5-5", modelName: "Claude Sonnet 5.5" }
 ];
-var THINKING_OFF = {
-  "claude-haiku-5-5": { type: "disabled" },
-  "claude-sonnet-5-5": { type: "between_tools" }
+var FALLBACK_CAPABILITIES = {
+  "claude-haiku-5-5": {
+    thinking: { supported: true, types: { disabled: { supported: true } } },
+    effort: { supported: true, low: { supported: true } }
+  },
+  "claude-sonnet-5-5": {
+    thinking: { supported: true, types: { between_tools: { supported: true } } },
+    effort: { supported: true, low: { supported: true } }
+  }
 };
+var CATALOG_TTL_MS = 60 * 60 * 1e3;
+var THINKING_HEADROOM = 4096;
+var supported = (node) => node?.supported === true;
+function speedParams(capabilities, maxTokens) {
+  const types = capabilities?.thinking?.types;
+  let thinking;
+  if (supported(types?.disabled)) thinking = { type: "disabled" };
+  else if (supported(types?.between_tools)) thinking = { type: "between_tools" };
+  else if (supported(types?.adaptive)) thinking = { type: "adaptive" };
+  const thinkingOff = thinking?.type === "disabled" || thinking?.type === "between_tools";
+  const params = { max_tokens: thinkingOff ? maxTokens : maxTokens + THINKING_HEADROOM };
+  if (thinking) params.thinking = thinking;
+  if (supported(capabilities?.effort) && supported(capabilities.effort.low)) {
+    params.output_config = { effort: "low" };
+  }
+  return params;
+}
 function createProvider({ credentials }) {
   let client = null;
   let clientKey = null;
+  let catalog = null;
   function getClient() {
     const auth = credentials.resolve();
     if (!auth) return null;
@@ -28311,16 +28336,40 @@ function createProvider({ credentials }) {
     }
     return client;
   }
+  function capabilitiesOf(model) {
+    return catalog?.list.find((m) => m.id === model)?.capabilities ?? FALLBACK_CAPABILITIES[model] ?? null;
+  }
+  async function listModels({ refresh = false } = {}) {
+    const api = getClient();
+    if (!api) return models;
+    const fresh = catalog && catalog.key === clientKey && Date.now() - catalog.fetchedAt < CATALOG_TTL_MS;
+    if (fresh && !refresh) return catalog.list;
+    try {
+      const list = [];
+      for await (const m of api.models.list()) {
+        list.push({ id: m.id, modelName: m.display_name, capabilities: m.capabilities ?? null, deprecatedAt: m.deprecated_at ?? null });
+      }
+      catalog = { key: clientKey, fetchedAt: Date.now(), list };
+      return list;
+    } catch {
+      return catalog?.list ?? models;
+    }
+  }
   return {
     name: "claude",
     hasCredentials() {
       return credentials.resolve() !== null;
     },
+    ownsModel(id) {
+      return typeof id === "string" && id.startsWith("claude-");
+    },
+    listModels,
     // Streams a completion and stops early once `maxLines` lines are produced.
     // Returns { text, stats } where stats carries latency and token usage.
     async complete(ctx, { model, maxTokens, maxLines, variant, signal }) {
-      const client2 = getClient();
-      if (!client2) throw new Error("No Anthropic API key configured");
+      const api = getClient();
+      if (!api) throw new Error("No Anthropic API key configured");
+      if (!capabilitiesOf(model)) await listModels();
       const content = [];
       if (ctx.stable) {
         content.push({ type: "text", text: ctx.stable, cache_control: { type: "ephemeral" } });
@@ -28330,13 +28379,10 @@ function createProvider({ credentials }) {
       if (extra) content.push({ type: "text", text: extra });
       const started = performance.now();
       const stats = { model, ttftMs: null, totalMs: null, usage: null };
-      const stream2 = client2.messages.stream(
+      const stream2 = api.messages.stream(
         {
           model,
-          max_tokens: maxTokens,
-          // Latency first: no thinking tokens before the answer.
-          thinking: THINKING_OFF[model] ?? { type: "adaptive" },
-          output_config: { effort: "low" },
+          ...speedParams(capabilitiesOf(model), maxTokens),
           stop_sequences: [CLOSE_TAG],
           system: [{ type: "text", text: SYSTEM_PROMPT }],
           messages: [{ role: "user", content }]
@@ -28374,12 +28420,21 @@ __export(mock_exports, {
   createProvider: () => createProvider2,
   models: () => models2
 });
-var models2 = [{ id: "mock", modelName: "Mock" }];
+var models2 = [
+  { id: "mock", modelName: "Mock" },
+  { id: "mock-2", modelName: "Mock 2" }
+];
 function createProvider2() {
   return {
     name: "mock",
     hasCredentials() {
       return true;
+    },
+    ownsModel(id) {
+      return typeof id === "string" && id.startsWith("mock");
+    },
+    async listModels() {
+      return models2;
     },
     async complete(ctx, { model, variant, signal }) {
       await new Promise((resolve2) => setTimeout(resolve2, 20));
@@ -28436,7 +28491,7 @@ function applySettings(settings = {}) {
   for (const key of Object.keys(defaults2)) {
     if (own[key] !== void 0 && own[key] !== null) next[key] = own[key];
   }
-  if (selected) next.model = selected;
+  if (selected && provider.ownsModel(selected)) next.model = selected;
   config = next;
 }
 function sleep2(ms, signal) {
@@ -28543,6 +28598,8 @@ var MISSING_KEY = "No Anthropic API key. Run :ClaudeComplete setup (or set ANTHR
 conn.onNotification("initialized", () => {
   if (provider.hasCredentials()) {
     setStatus("Normal");
+    provider.listModels().catch(() => {
+    });
   } else {
     setStatus("Error", MISSING_KEY);
   }
@@ -28582,7 +28639,18 @@ conn.onRequest("signInConfirm", () => ({ status: "OK", user }));
 conn.onRequest("signOut", () => ({ status: "NotSignedIn" }));
 conn.onRequest("checkStatus", () => ({ status: "OK", user }));
 conn.onRequest("getVersion", () => ({ version: VERSION3, buildType: "dev", runtimeVersion: `node/${process.versions.node}` }));
-conn.onRequest("copilot/models", () => providerModule.models.map((m) => ({ ...m, modelFamily: m.id, preview: false, scopes: ["completion"] })));
+conn.onRequest("copilot/models", async () => {
+  const list = await provider.listModels();
+  return list.map((m) => ({
+    id: m.id,
+    modelName: m.modelName,
+    modelFamily: m.id,
+    preview: false,
+    deprecated: Boolean(m.deprecatedAt),
+    current: m.id === config.model,
+    scopes: ["completion"]
+  }));
+});
 conn.onRequest("workspace/executeCommand", () => ({}));
 conn.onRequest("telemetry/exception", () => ({}));
 for (const method of [

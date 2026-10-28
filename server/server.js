@@ -66,7 +66,8 @@ function applySettings(settings = {}) {
   for (const key of Object.keys(defaults)) {
     if (own[key] !== undefined && own[key] !== null) next[key] = own[key];
   }
-  if (selected) next.model = selected;
+  // :Copilot model may hold a GitHub model id picked while on the copilot backend.
+  if (selected && provider.ownsModel(selected)) next.model = selected;
   config = next;
 }
 
@@ -188,6 +189,7 @@ const MISSING_KEY = 'No Anthropic API key. Run :ClaudeComplete setup (or set ANT
 conn.onNotification('initialized', () => {
   if (provider.hasCredentials()) {
     setStatus('Normal');
+    provider.listModels().catch(() => {});
   } else {
     setStatus('Error', MISSING_KEY);
   }
@@ -243,8 +245,18 @@ conn.onRequest('signInConfirm', () => ({ status: 'OK', user }));
 conn.onRequest('signOut', () => ({ status: 'NotSignedIn' }));
 conn.onRequest('checkStatus', () => ({ status: 'OK', user }));
 conn.onRequest('getVersion', () => ({ version: VERSION, buildType: 'dev', runtimeVersion: `node/${process.versions.node}` }));
-conn.onRequest('copilot/models', () =>
-  providerModule.models.map((m) => ({ ...m, modelFamily: m.id, preview: false, scopes: ['completion'] })));
+conn.onRequest('copilot/models', async () => {
+  const list = await provider.listModels();
+  return list.map((m) => ({
+    id: m.id,
+    modelName: m.modelName,
+    modelFamily: m.id,
+    preview: false,
+    deprecated: Boolean(m.deprecatedAt),
+    current: m.id === config.model,
+    scopes: ['completion'],
+  }));
+});
 // Neovim drops a null result entirely and copilot.vim then fails on the missing key.
 conn.onRequest('workspace/executeCommand', () => ({}));
 conn.onRequest('telemetry/exception', () => ({}));

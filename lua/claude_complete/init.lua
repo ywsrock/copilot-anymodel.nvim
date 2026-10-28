@@ -15,6 +15,7 @@ M.paths = {
   server = root .. '/dist/server.mjs',
   key_file = vim.fn.stdpath('data') .. '/claude-complete/api_key',
   backend_file = vim.fn.stdpath('state') .. '/claude-complete/backend',
+  model_file = vim.fn.stdpath('state') .. '/claude-complete/model',
 }
 
 M.config = {
@@ -61,6 +62,27 @@ function M.key_source()
   return nil
 end
 
+-- Model picked with :ClaudeComplete model, or nil.
+function M.saved_model()
+  local model = vim.trim(read_file(M.paths.model_file) or '')
+  return model ~= '' and model or nil
+end
+
+local function is_claude_model(id)
+  return type(id) == 'string' and id:match('^claude%-') ~= nil
+end
+
+-- :Copilot model stores its choice in g:copilot_settings, which both backends
+-- receive. Drops it when it would override :ClaudeComplete model or reach GitHub.
+local function clear_copilot_model(keep)
+  local settings = vim.g.copilot_settings
+  if type(settings) == 'table' and is_claude_model(settings.selectedCompletionModel)
+      and settings.selectedCompletionModel ~= keep then
+    settings.selectedCompletionModel = nil
+    vim.g.copilot_settings = settings
+  end
+end
+
 local function apply(backend)
   vim.g.claude_complete_backend = backend
   if backend == 'claude' then
@@ -68,12 +90,20 @@ local function apply(backend)
   else
     -- Unset: copilot.vim then starts GitHub's own language server.
     vim.g.copilot_command = nil
+    clear_copilot_model()
   end
-  if not vim.tbl_isempty(M.config.server) then
+  local server = vim.deepcopy(M.config.server)
+  server.model = M.saved_model() or server.model
+  if not vim.tbl_isempty(server) then
     local settings = vim.g.copilot_lsp_settings or {}
-    settings.claude = M.config.server
+    settings.claude = server
     vim.g.copilot_lsp_settings = settings
   end
+end
+
+-- Sends the current settings to a running server; no restart needed.
+local function push_settings()
+  vim.cmd('if copilot#RunningClient() isnot v:null | call copilot#RunningClient().DidChangeConfiguration() | endif')
 end
 
 local function restart()
@@ -140,6 +170,57 @@ function M.setup_key()
   end
 end
 
+function M.set_model(id)
+  vim.fn.mkdir(vim.fn.fnamemodify(M.paths.model_file, ':h'), 'p')
+  vim.fn.writefile({ id }, M.paths.model_file)
+  clear_copilot_model(id)
+  apply(vim.g.claude_complete_backend)
+  if vim.g.claude_complete_backend == 'claude' then
+    push_settings()
+  end
+  notify('model: ' .. id)
+end
+
+-- Models the API key can use, as reported by the running server.
+function M.list_models()
+  local response = vim.fn.eval("copilot#Client().Request('copilot/models', {}).Wait()")
+  if response.status ~= 'success' then
+    return nil, vim.tbl_get(response, 'error', 'message') or 'request failed'
+  end
+  return response.result
+end
+
+-- Ids for command-line completion, refreshed by each listing.
+local model_cache = { 'claude-haiku-5-5', 'claude-sonnet-5-5' }
+
+-- Without an id, lists every available model and lets the user pick one.
+function M.select_model(id)
+  if id then
+    M.set_model(id)
+    return
+  end
+  if vim.g.claude_complete_backend ~= 'claude' then
+    notify('model selection needs the claude backend (use :Copilot model for GitHub models)', vim.log.levels.WARN)
+    return
+  end
+  local models, err = M.list_models()
+  if not models then
+    notify('could not list models: ' .. err, vim.log.levels.ERROR)
+    return
+  end
+  model_cache = vim.tbl_map(function(m) return m.id end, models)
+  vim.ui.select(models, {
+    prompt = 'Claude model',
+    format_item = function(m)
+      return string.format('%s%s (%s)%s', m.current and '* ' or '  ', m.modelName, m.id, m.deprecated and ' [deprecated]' or '')
+    end,
+  }, function(choice)
+    if choice then
+      M.set_model(choice.id)
+    end
+  end)
+end
+
 function M.logout()
   if vim.fn.filereadable(M.paths.key_file) == 1 then
     vim.fn.delete(M.paths.key_file)
@@ -153,6 +234,7 @@ function M.info()
   local source = M.key_source()
   print(table.concat({
     'backend:  ' .. tostring(vim.g.claude_complete_backend),
+    'model:    ' .. (M.saved_model() or M.config.server.model or 'claude-haiku-5-5 (default)'),
     'api key:  ' .. (source == 'env' and 'ANTHROPIC_API_KEY' or source == 'file' and M.paths.key_file or 'not set'),
     'server:   ' .. M.paths.server,
     'node:     ' .. M.node_command(),
@@ -169,6 +251,7 @@ local subcommands = {
     end
   end,
   toggle = M.toggle,
+  model = M.select_model,
   info = M.info,
   logout = M.logout,
 }
@@ -190,6 +273,8 @@ local function complete(_, line)
     return vim.tbl_keys(subcommands)
   elseif n == 3 and args[2] == 'backend' then
     return backends
+  elseif n == 3 and args[2] == 'model' then
+    return model_cache
   end
   return {}
 end
@@ -200,7 +285,7 @@ function M.init()
   vim.api.nvim_create_user_command('ClaudeComplete', command, {
     nargs = '*',
     complete = complete,
-    desc = 'claude-complete: setup | backend [claude|copilot] | toggle | info | logout',
+    desc = 'claude-complete: setup | backend [claude|copilot] | toggle | model [id] | info | logout',
   })
 end
 

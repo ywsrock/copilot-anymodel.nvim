@@ -36,12 +36,15 @@ Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
                               once). Restarts the server; remembered across
                               sessions.
 :ClaudeComplete toggle        Switch to the other backend.
+:ClaudeComplete model [{id}]  Without {id}, list every model the API key can
+                              use (from the Models API) and pick one. Takes
+                              effect without a restart; remembered across
+                              sessions.
 :ClaudeComplete info          Show backend, key source and paths.
 :ClaudeComplete logout        Delete the saved key.
 
 Useful copilot.vim commands with the claude backend:
   :Copilot status   `Ready`, or the problem (missing key, no credit, ...)
-  :Copilot model    Claude Haiku 5.5 (default) or Claude Sonnet 5.5
   :Copilot log      latency per request and errors
 
 Health check: `:checkhealth claude_complete`

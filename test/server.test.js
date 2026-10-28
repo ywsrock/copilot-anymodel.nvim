@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { buildContext } from '../server/lib/prompt.js';
 import { clean, toItem } from '../server/lib/postprocess.js';
 import { createCredentials, normalizeKey } from '../server/lib/credentials.js';
+import { speedParams } from '../server/providers/claude.js';
 
 // Tests run the bundle users actually get; `npm run build` first.
 const serverPath = fileURLToPath(new URL('../dist/server.mjs', import.meta.url));
@@ -179,4 +180,39 @@ test('normalizeKey accepts a pasted shell line', () => {
   assert.equal(normalizeKey('export ANTHROPIC_API_KEY=sk-ant-abc'), 'sk-ant-abc');
   assert.equal(normalizeKey('ANTHROPIC_API_KEY="sk-ant-abc"'), 'sk-ant-abc');
   assert.equal(normalizeKey("  export ANTHROPIC_API_KEY = 'sk-ant-abc'  "), 'sk-ant-abc');
+});
+
+test('copilot/models lists every model and follows the selected one', async (t) => {
+  const server = startServer({ CLAUDE_COMPLETE_MOCK_TEXT: 'x' });
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  const ids = async () => (await server.request('copilot/models', {}).response).result;
+  let models = await ids();
+  assert.deepEqual(models.map((m) => m.id), ['mock', 'mock-2']);
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock']);
+
+  server.notify('workspace/didChangeConfiguration', { settings: { claude: { model: 'mock-2' } } });
+  models = await ids();
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
+
+  // A GitHub model id left in g:copilot_settings is ignored.
+  server.notify('workspace/didChangeConfiguration', { settings: { claude: { model: 'mock-2' }, github: { copilot: { selectedCompletionModel: 'gpt-4o-copilot' } } } });
+  models = await ids();
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
+});
+
+test('speedParams picks the fastest settings each model accepts', () => {
+  const caps = (thinking, effort = ['low']) => ({
+    thinking: { supported: true, types: Object.fromEntries(thinking.map((k) => [k, { supported: true }])) },
+    effort: { supported: effort.length > 0, ...Object.fromEntries(effort.map((k) => [k, { supported: true }])) },
+  });
+  assert.deepEqual(speedParams(caps(['adaptive', 'disabled']), 256), { max_tokens: 256, thinking: { type: 'disabled' }, output_config: { effort: 'low' } });
+  assert.deepEqual(speedParams(caps(['adaptive', 'between_tools']), 256), { max_tokens: 256, thinking: { type: 'between_tools' }, output_config: { effort: 'low' } });
+  // Thinking cannot be turned off: leave room for it, keep effort low.
+  assert.deepEqual(speedParams(caps(['adaptive']), 256), { max_tokens: 256 + 4096, thinking: { type: 'adaptive' }, output_config: { effort: 'low' } });
+  // Older model without effort support.
+  assert.deepEqual(speedParams(caps(['enabled', 'disabled'], []), 256), { max_tokens: 256, thinking: { type: 'disabled' } });
+  // Unknown model: the API default may think, so keep the headroom.
+  assert.deepEqual(speedParams(null, 256), { max_tokens: 256 + 4096 });
 });
