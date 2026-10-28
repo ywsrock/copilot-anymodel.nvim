@@ -1,7 +1,7 @@
 # copilot-anymodel.nvim
 
 Keep the [copilot.vim](https://github.com/github/copilot.vim) interface, pick
-the model behind it. Claude today; OpenAI and Ollama are planned.
+the model behind it: Claude, or local models through Ollama. OpenAI is planned.
 
 copilot.vim keeps doing what it does well (ghost text, `<Tab>` to accept,
 cycling, the panel). This plugin swaps the language server behind it for one
@@ -18,8 +18,9 @@ server.
 - Neovim 0.10+ (tested on 0.12)
 - Node.js 20+ (copilot.vim needs it too)
 - [copilot.vim](https://github.com/github/copilot.vim)
-- An Anthropic API key with credit: <https://console.anthropic.com>
+- For Claude: an Anthropic API key with credit: <https://console.anthropic.com>
   (a claude.ai Pro/Max subscription does not include API usage)
+- For local models: [Ollama](https://ollama.com) running (no key needed)
 
 No `npm install`: the server ships as a single bundled file in `dist/`.
 
@@ -118,10 +119,39 @@ A provider's environment variable (`ANTHROPIC_API_KEY`) takes precedence over
 its saved key.
 copilot.vim options such as `g:copilot_filetypes` keep working.
 
+## Providers
+
+| Provider | Setup | Models in `:Cop model` |
+|---|---|---|
+| `anthropic` | `:Cop key anthropic` | Every model your key can use, from the Models API |
+| `ollama` | Ollama running locally | Every installed model that can generate text |
+
+**Ollama.** Models with the `insert` capability (shown as `FIM`, e.g.
+`qwen2.5-coder`) get a fill-in-the-middle request; other models get the chat
+prompt. The selected model is loaded when you pick it and kept for 30 minutes.
+Local inference re-reads everything after the first changed token on each
+keystroke, so Ollama uses smaller defaults: `linesAfter = 15`, `maxLines = 4`,
+`maxTokens = 128`, `alternatives = 0`. Override them per provider:
+
+```lua
+server = {
+  model = 'ollama/qwen2.5-coder:7b',
+  providers = {
+    ollama = { baseUrl = 'http://localhost:11434', keepAlive = '30m', linesAfter = 30 },
+    -- ollama = false,  -- hide Ollama models
+  },
+},
+```
+
+`$OLLAMA_HOST` is honoured when `baseUrl` is not set. Speed depends on your
+hardware: `qwen2.5-coder:7b` on an Intel i9 without GPU takes about 3 s to the
+first token and 5 s for a one-line suggestion.
+
 ## Privacy and cost
 
 - Around the cursor (by default 200 lines above and 50 below) the current file
-  is sent to the Anthropic API for every suggestion. Turn it off where that is
+  is sent to the model's provider for every suggestion; with Ollama it stays
+  on your machine (or your Ollama server). Turn it off where that is
   not acceptable:
 
   ```vim

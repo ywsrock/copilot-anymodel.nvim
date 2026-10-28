@@ -13,6 +13,7 @@ import { createCredentials } from './lib/credentials.js';
 import { modelId, parseModelId } from './lib/models.js';
 import * as anthropic from './providers/anthropic.js';
 import * as mock from './providers/mock.js';
+import * as ollama from './providers/ollama.js';
 
 const VERSION = '0.1.0';
 const ACCEPT_COMMAND = { title: 'Accept', command: 'copilot-anymodel.accepted', arguments: [] };
@@ -22,10 +23,10 @@ function argValue(name) {
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
 
-const registry = { anthropic, mock };
+const registry = { anthropic, ollama, mock };
 const keyDir = argValue('--key-dir');
-// Tests pin the provider list; normally every provider that needs no setup, plus
-// those configured under `providers`, is available.
+// Tests pin the provider list. Otherwise anthropic and ollama are on, plus any
+// provider configured under `providers`; `providers = { ollama = false }` turns one off.
 const pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(',').filter(Boolean) ?? null;
 for (const name of pinned ?? []) if (!registry[name]) throw new Error(`unknown provider: ${name}`);
 
@@ -35,15 +36,34 @@ function getProvider(name) {
   if (!instances.has(name)) {
     const mod = registry[name];
     const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join(keyDir, name) : null, ...mod.auth });
-    instances.set(name, mod.createProvider({ credentials, options: config.providers?.[name] ?? {} }));
+    instances.set(name, mod.createProvider({ credentials, options: providerOptions(name) }));
   }
   return instances.get(name);
+}
+
+function providerOptions(name) {
+  const options = config.providers?.[name];
+  return options && typeof options === 'object' ? options : {};
 }
 
 function enabledProviders() {
   if (pinned) return pinned;
   const configured = Object.keys(config.providers ?? {}).filter((n) => registry[n] && n !== 'mock');
-  return [...new Set(['anthropic', ...configured])];
+  return [...new Set(['anthropic', 'ollama', ...configured])].filter((n) => config.providers?.[n] !== false);
+}
+
+const TUNABLE = ['maxTokens', 'maxLines', 'debounceMs', 'linesBefore', 'linesAfter', 'alternatives'];
+
+// Request settings for one provider: global defaults, then the provider's own
+// defaults, then what the user set globally, then what they set for the provider.
+function settingsFor(name) {
+  const result = {};
+  for (const key of TUNABLE) {
+    for (const source of [defaults, registry[name].defaults ?? {}, own, providerOptions(name)]) {
+      if (source[key] !== undefined && source[key] !== null) result[key] = source[key];
+    }
+  }
+  return result;
 }
 
 // The configured model, or the first enabled provider's default when its
@@ -67,6 +87,7 @@ const defaults = {
   alternatives: 2,
 };
 let config = { ...defaults };
+let own = {}; // settings exactly as the user gave them
 
 const conn = createConnection();
 const docs = new Map(); // uri -> { text, languageId, path }
@@ -91,7 +112,7 @@ function uriToPath(uri) {
 }
 
 function applySettings(settings = {}) {
-  const own = settings.anymodel ?? {};
+  own = settings.anymodel ?? {};
   const selected = settings.github?.copilot?.selectedCompletionModel;
   const next = { ...defaults };
   for (const key of Object.keys(defaults)) {
@@ -134,9 +155,8 @@ function continuation(uri, ctx) {
   return rest.trim() ? rest : null;
 }
 
-async function generate(uri, ctx, { variant, signal }) {
-  const { provider: name, model } = currentModel();
-  const options = { model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
+async function generate(uri, ctx, { name, model, settings, variant, signal }) {
+  const options = { model, maxTokens: settings.maxTokens, maxLines: ctx.singleLine ? 1 : settings.maxLines, variant, signal };
   let result;
   try {
     result = await getProvider(name).complete(ctx, options);
@@ -170,12 +190,13 @@ async function complete(params, signal, { invoked }) {
   const uri = params.textDocument?.uri;
   const doc = docs.get(uri);
   if (!doc) return { items: [] };
-  const { provider: name } = currentModel();
+  const { provider: name, model } = currentModel();
   if (!getProvider(name).ready()) {
     setStatus('Error', missingKey(name));
     return { items: [] };
   }
-  const ctx = buildContext(doc, params.position, config);
+  const settings = settingsFor(name);
+  const ctx = buildContext(doc, params.position, settings);
 
   const completions = [];
   const cached = continuation(uri, ctx);
@@ -183,11 +204,11 @@ async function complete(params, signal, { invoked }) {
 
   const variants = [];
   if (!cached) variants.push(false);
-  if (invoked) for (let i = 0; i < config.alternatives; i++) variants.push(true);
+  if (invoked) for (let i = 0; i < settings.alternatives; i++) variants.push(true);
 
   if (variants.length) {
-    if (!invoked && !cached) await sleep(config.debounceMs, signal);
-    const results = await Promise.allSettled(variants.map((variant) => generate(uri, ctx, { variant, signal })));
+    if (!invoked && !cached) await sleep(settings.debounceMs, signal);
+    const results = await Promise.allSettled(variants.map((variant) => generate(uri, ctx, { name, model, settings, variant, signal })));
     if (signal.aborted) throw signal.reason;
     let ok = false;
     for (const r of results) {
@@ -230,12 +251,31 @@ function missingKey(name) {
   return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ''}.`;
 }
 
+// Gets the selected model ready: fetches capabilities, or loads a local model.
+let warmed = null;
+function warmUp() {
+  const { provider: name, model } = currentModel();
+  const id = modelId(name, model);
+  if (warmed === id) return;
+  warmed = id;
+  const provider = getProvider(name);
+  if (!provider.ready()) return;
+  provider.listModels().catch(() => {});
+  if (provider.warm) {
+    const started = performance.now();
+    provider.warm(model).then(
+      () => log(`${id} loaded in ${Math.round(performance.now() - started)}ms`),
+      (err) => log(`${id} could not be loaded: ${err?.message ?? err}`, 2),
+    );
+  }
+}
+
 conn.onNotification('initialized', () => {
   const { provider: name, model } = currentModel();
   const provider = getProvider(name);
   if (provider.ready()) {
     setStatus('Normal');
-    provider.listModels().catch(() => {});
+    warmUp();
   } else {
     setStatus('Error', missingKey(name));
   }
@@ -248,6 +288,7 @@ conn.onNotification('exit', () => process.exit(0));
 conn.onNotification('workspace/didChangeConfiguration', (params) => {
   applySettings(params.settings);
   log(`config: ${JSON.stringify(config)}`);
+  warmUp();
 });
 
 // ---------------------------------------------------------------- documents

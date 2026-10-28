@@ -10,6 +10,7 @@ import { parseModelId } from '../server/lib/models.js';
 import { clean, toItem } from '../server/lib/postprocess.js';
 import { createCredentials, normalizeKey } from '../server/lib/credentials.js';
 import { speedParams } from '../server/providers/anthropic.js';
+import { createServer } from 'node:http';
 
 // Tests run the bundle users actually get; `npm run build` first.
 const serverPath = fileURLToPath(new URL('../dist/server.mjs', import.meta.url));
@@ -229,4 +230,91 @@ test('parseModelId splits provider and model', () => {
   assert.deepEqual(parseModelId('openrouter/meta/llama'), { provider: 'openrouter', model: 'meta/llama' });
   assert.deepEqual(parseModelId('claude-sonnet-5-5'), { provider: 'anthropic', model: 'claude-sonnet-5-5' });
   assert.equal(parseModelId('gpt-4o-copilot'), null);
+});
+
+// A stand-in for Ollama: two models with different capabilities, NDJSON streaming.
+async function fakeOllama(t) {
+  const requests = [];
+  const http = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const json = body ? JSON.parse(body) : {};
+      requests.push({ path: req.url, body: json, closed: false });
+      const entry = requests.at(-1);
+      res.on('close', () => { entry.closed = true; });
+      if (req.url === '/api/tags') {
+        res.end(JSON.stringify({ models: [{ name: 'coder:7b', details: { parameter_size: '7B' } }, { name: 'chat:1b' }, { name: 'embed' }] }));
+      } else if (req.url === '/api/show') {
+        const caps = { 'coder:7b': ['completion', 'insert'], 'chat:1b': ['completion'], embed: ['embedding'] }[json.model];
+        res.end(JSON.stringify({ capabilities: caps }));
+      } else if (req.url === '/api/generate' && json.prompt === undefined) {
+        res.end(JSON.stringify({ done: true })); // warm-up
+      } else if (json.model === 'slow:1b' || json.prompt?.includes('SLOW')) {
+        res.write(JSON.stringify({ response: 'x' }) + '\n'); // never finishes
+      } else if (req.url === '/api/generate') {
+        for (const piece of ['a + ', 'b;\n', '}']) res.write(JSON.stringify({ response: piece }) + '\n');
+        res.end(JSON.stringify({ done: true, prompt_eval_count: 12, eval_count: 3 }) + '\n');
+      } else if (req.url === '/api/chat') {
+        res.write(JSON.stringify({ message: { content: 'Here: <completion>a - b;' } }) + '\n');
+        res.end(JSON.stringify({ message: { content: '' }, done: true }) + '\n');
+      }
+    });
+  });
+  await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
+  t.after(() => http.close());
+  return { host: `127.0.0.1:${http.address().port}`, requests };
+}
+
+test('ollama: FIM for insert-capable models, chat otherwise, per-provider defaults', async (t) => {
+  const fake = await fakeOllama(t);
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'ollama', OLLAMA_HOST: fake.host });
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'ollama/coder:7b', debounceMs: 0 } } });
+
+  const models = (await server.request('copilot/models', {}).response).result;
+  assert.deepEqual(models.map((m) => m.id), ['ollama/coder:7b', 'ollama/chat:1b']);
+  assert.equal(models[0].modelName, 'coder:7b 7B FIM');
+  assert.ok(fake.requests.some((r) => r.path === '/api/generate' && r.body.prompt === undefined && r.body.model === 'coder:7b'), 'warm-up');
+
+  const uri = 'file:///tmp/add.js';
+  const text = 'function add(a, b) {\n  return \n}\n';
+  server.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'javascript', version: 1, text } });
+  const position = { line: 1, character: 9 };
+  let r = await server.request('textDocument/inlineCompletion', { textDocument: { uri }, position, context: { triggerKind: 1 } }).response;
+  assert.equal(r.result.items[0].insertText, '  return a + b;');
+  const fim = fake.requests.find((x) => x.path === '/api/generate' && x.body.prompt !== undefined);
+  assert.equal(fim.body.prompt, 'function add(a, b) {\n  return ');
+  assert.equal(fim.body.suffix, '\n}\n');
+  assert.equal(fim.body.options.num_predict, 128); // ollama default, not the global 256
+  // alternatives = 0 for ollama: an explicit request (triggerKind 1) still sends one request.
+  assert.equal(fake.requests.filter((x) => x.path === '/api/generate' && x.body.prompt !== undefined).length, 1);
+
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'ollama/chat:1b', debounceMs: 0, providers: { ollama: { maxTokens: 64 } } } } });
+  server.notify('textDocument/didChange', { textDocument: { uri, version: 2 }, contentChanges: [{ text: 'function sub(a, b) {\n  return \n}\n' }] });
+  r = await server.request('textDocument/inlineCompletion', { textDocument: { uri }, position, context: { triggerKind: 2 } }).response;
+  assert.equal(r.result.items[0].insertText, '  return a - b;');
+  const chat = fake.requests.find((x) => x.path === '/api/chat');
+  assert.equal(chat.body.options.num_predict, 64);
+  assert.equal(chat.body.messages[0].role, 'system');
+});
+
+test('ollama: cancelling a completion closes the request to Ollama', async (t) => {
+  const fake = await fakeOllama(t);
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'ollama', OLLAMA_HOST: fake.host });
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'ollama/coder:7b', debounceMs: 0 } } });
+  const uri = 'file:///tmp/slow.js';
+  server.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'javascript', version: 1, text: 'SLOW \n' } });
+  const pending = server.request('textDocument/inlineCompletion', { textDocument: { uri }, position: { line: 0, character: 5 }, context: { triggerKind: 2 } });
+  const started = Date.now();
+  while (!fake.requests.some((x) => x.body.prompt?.includes('SLOW')) && Date.now() - started < 3000) await new Promise((r) => setTimeout(r, 20));
+  server.notify('$/cancelRequest', { id: pending.id });
+  assert.equal((await pending.response).error.code, -32800);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(fake.requests.find((x) => x.body.prompt?.includes('SLOW')).closed, true);
 });

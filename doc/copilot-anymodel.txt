@@ -70,6 +70,22 @@ Optional: >lua
 <
 `g:copilot_node_command` selects the Node.js binary for the server too.
 
+                                                  *copilot-anymodel-ollama*
+Ollama models appear in |:Cop| model while Ollama is running; no key is
+needed. Models with the `insert` capability (shown as FIM) get a
+fill-in-the-middle request, others the chat prompt. Ollama uses smaller
+defaults (linesAfter 15, maxLines 4, maxTokens 128, alternatives 0); set
+options per provider: >lua
+    server = {
+      model = 'ollama/qwen2.5-coder:7b',
+      providers = {
+        ollama = { baseUrl = 'http://localhost:11434', keepAlive = '30m' },
+        -- ollama = false,  -- hide Ollama models
+      },
+    }
+<
+$OLLAMA_HOST is used when baseUrl is not set.
+
 ==============================================================================
 4. PRIVACY                                          *copilot-anymodel-privacy*
 

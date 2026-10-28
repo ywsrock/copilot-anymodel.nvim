@@ -4470,12 +4470,12 @@ async function defaultCredentials(options, profile) {
 function buildProvider(config2, credentialsPath, baseURL, options) {
   switch (config2.authentication.type) {
     case "oidc_federation": {
-      const auth3 = config2.authentication;
-      const identityProvider = resolveIdentityTokenProvider(auth3);
+      const auth4 = config2.authentication;
+      const identityProvider = resolveIdentityTokenProvider(auth4);
       if (!identityProvider) {
         throw new WorkloadIdentityError("oidc_federation config requires an identity token (set authentication.identity_token, ANTHROPIC_IDENTITY_TOKEN_FILE, or ANTHROPIC_IDENTITY_TOKEN)");
       }
-      if (!auth3.federation_rule_id) {
+      if (!auth4.federation_rule_id) {
         throw new WorkloadIdentityError("oidc_federation config requires 'federation_rule_id'. Set it in authentication.federation_rule_id in your profile, or via ANTHROPIC_FEDERATION_RULE_ID (profile takes precedence).");
       }
       if (!config2.organization_id) {
@@ -4483,9 +4483,9 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
       }
       const exchange = oidcFederationProvider({
         identityTokenProvider: identityProvider,
-        federationRuleId: auth3.federation_rule_id,
+        federationRuleId: auth4.federation_rule_id,
         organizationId: config2.organization_id,
-        serviceAccountId: auth3.service_account_id,
+        serviceAccountId: auth4.service_account_id,
         workspaceId: config2.workspace_id,
         baseURL,
         fetch: options.fetch,
@@ -4515,16 +4515,16 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
     }
   }
 }
-function resolveIdentityTokenProvider(auth3) {
-  if (auth3.identity_token) {
-    const source = auth3.identity_token.source;
+function resolveIdentityTokenProvider(auth4) {
+  if (auth4.identity_token) {
+    const source = auth4.identity_token.source;
     if (source !== "file") {
       throw new WorkloadIdentityError(`identity_token.source "${source}" is not supported by this SDK version (only "file")`);
     }
-    if (!auth3.identity_token.path) {
+    if (!auth4.identity_token.path) {
       throw new WorkloadIdentityError(`identity_token.source "file" requires a non-empty path`);
     }
-    return identityTokenFromFile(auth3.identity_token.path);
+    return identityTokenFromFile(auth4.identity_token.path);
   }
   const tokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
   if (tokenFile) {
@@ -28345,11 +28345,11 @@ function createProvider({ credentials }) {
   let clientKey = null;
   let catalog = null;
   function getClient() {
-    const auth3 = credentials.resolve();
-    if (!auth3) return null;
-    const key = auth3.apiKey ?? auth3.authToken;
+    const auth4 = credentials.resolve();
+    if (!auth4) return null;
+    const key = auth4.apiKey ?? auth4.authToken;
     if (key !== clientKey) {
-      client = new Anthropic({ apiKey: auth3.apiKey ?? null, authToken: auth3.authToken ?? null, maxRetries: 0, timeout: 1e4 });
+      client = new Anthropic({ apiKey: auth4.apiKey ?? null, authToken: auth4.authToken ?? null, maxRetries: 0, timeout: 1e4 });
       clientKey = key;
     }
     return client;
@@ -28460,6 +28460,141 @@ function createProvider2() {
   };
 }
 
+// server/providers/ollama.js
+var ollama_exports = {};
+__export(ollama_exports, {
+  auth: () => auth3,
+  createProvider: () => createProvider3,
+  defaults: () => defaults2,
+  models: () => models3
+});
+var auth3 = null;
+var models3 = [{ id: "qwen2.5-coder:7b", modelName: "qwen2.5-coder:7b" }];
+var defaults2 = { linesAfter: 15, maxLines: 4, maxTokens: 128, alternatives: 0 };
+var LIST_TIMEOUT_MS = 3e3;
+function baseUrlFrom(options, env) {
+  let url = options.baseUrl ?? env.OLLAMA_HOST ?? "http://localhost:11434";
+  if (!/^https?:\/\//.test(url)) url = `http://${url}`;
+  return url.replace(/\/+$/, "");
+}
+async function* ndjson(body) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      if (line) yield JSON.parse(line);
+    }
+  }
+  if (buffer.trim()) yield JSON.parse(buffer);
+}
+function createProvider3({ options = {}, env = process.env } = {}) {
+  const baseUrl = baseUrlFrom(options, env);
+  const keepAlive = options.keepAlive ?? "30m";
+  const capabilities = /* @__PURE__ */ new Map();
+  async function post(path4, body, signal) {
+    const res = await fetch(baseUrl + path4, { method: "POST", body: JSON.stringify(body), signal });
+    if (!res.ok) {
+      const err = new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res;
+  }
+  async function capabilitiesOf(model) {
+    if (!capabilities.has(model)) {
+      const res = await post("/api/show", { model }, AbortSignal.timeout(LIST_TIMEOUT_MS));
+      capabilities.set(model, (await res.json()).capabilities ?? []);
+    }
+    return capabilities.get(model);
+  }
+  function request(ctx, { model, maxTokens, variant, fim }) {
+    const generation = {
+      num_predict: maxTokens,
+      // Alternatives should differ from the first suggestion.
+      temperature: variant ? 0.6 : 0
+    };
+    if (fim) {
+      if (ctx.singleLine) generation.stop = ["\n"];
+      return ["/api/generate", { model, prompt: ctx.fimPrefix, suffix: ctx.fimSuffix, stream: true, keep_alive: keepAlive, options: generation }];
+    }
+    generation.stop = [CLOSE_TAG];
+    const content = [ctx.stable + ctx.volatile, instructions(ctx, { variant })].filter(Boolean).join("\n\n");
+    return ["/api/chat", {
+      model,
+      stream: true,
+      keep_alive: keepAlive,
+      // Reasoning models would otherwise think before answering.
+      think: false,
+      options: generation,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content }]
+    }];
+  }
+  return {
+    name: "ollama",
+    // No key; an unreachable server just lists no models.
+    ready() {
+      return true;
+    },
+    async listModels() {
+      const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`Ollama ${res.status}`);
+      const list = [];
+      for (const m of (await res.json()).models ?? []) {
+        const caps = await capabilitiesOf(m.name).catch(() => []);
+        if (!caps.includes("completion") || caps.includes("embedding")) continue;
+        const size = m.details?.parameter_size ? ` ${m.details.parameter_size}` : "";
+        list.push({ id: m.name, modelName: `${m.name}${size}${caps.includes("insert") ? " FIM" : ""}` });
+      }
+      return list;
+    },
+    // Loads the model into memory so the first completion does not wait for it.
+    async warm(model) {
+      await post("/api/generate", { model, keep_alive: keepAlive }, AbortSignal.timeout(12e4));
+    },
+    // Streams a completion; aborting the request also stops Ollama's work on it.
+    async complete(ctx, { model, maxTokens, maxLines, variant, signal }) {
+      const fim = (await capabilitiesOf(model).catch(() => [])).includes("insert");
+      const [path4, body] = request(ctx, { model, maxTokens, variant, fim });
+      const started = performance.now();
+      const stats = { model, ttftMs: null, totalMs: null, usage: null };
+      const controller = new AbortController();
+      const onAbort = () => controller.abort(signal.reason);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      let raw = "";
+      const visible = () => fim ? raw : extractCompletion(raw);
+      try {
+        const res = await post(path4, body, controller.signal);
+        for await (const event of ndjson(res.body)) {
+          if (event.error) throw new Error(`Ollama: ${event.error}`);
+          const piece = fim ? event.response : event.message?.content;
+          if (piece) {
+            stats.ttftMs ??= Math.round(performance.now() - started);
+            raw += piece;
+            if (visible().replace(/^\n+/, "").split("\n").length > maxLines) {
+              controller.abort();
+              break;
+            }
+          }
+          if (event.done) {
+            stats.usage = { input_tokens: event.prompt_eval_count, output_tokens: event.eval_count };
+          }
+        }
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err;
+        if (!controller.signal.aborted) throw err;
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
+      stats.totalMs = Math.round(performance.now() - started);
+      return { text: visible(), raw, stats };
+    }
+  };
+}
+
 // server/server.js
 var VERSION3 = "0.1.0";
 var ACCEPT_COMMAND = { title: "Accept", command: "copilot-anymodel.accepted", arguments: [] };
@@ -28467,7 +28602,7 @@ function argValue(name) {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
-var registry2 = { anthropic: anthropic_exports, mock: mock_exports };
+var registry2 = { anthropic: anthropic_exports, ollama: ollama_exports, mock: mock_exports };
 var keyDir = argValue("--key-dir");
 var pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(",").filter(Boolean) ?? null;
 for (const name of pinned ?? []) if (!registry2[name]) throw new Error(`unknown provider: ${name}`);
@@ -28477,14 +28612,28 @@ function getProvider(name) {
   if (!instances.has(name)) {
     const mod = registry2[name];
     const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join2(keyDir, name) : null, ...mod.auth });
-    instances.set(name, mod.createProvider({ credentials, options: config.providers?.[name] ?? {} }));
+    instances.set(name, mod.createProvider({ credentials, options: providerOptions(name) }));
   }
   return instances.get(name);
+}
+function providerOptions(name) {
+  const options = config.providers?.[name];
+  return options && typeof options === "object" ? options : {};
 }
 function enabledProviders() {
   if (pinned) return pinned;
   const configured = Object.keys(config.providers ?? {}).filter((n) => registry2[n] && n !== "mock");
-  return [.../* @__PURE__ */ new Set(["anthropic", ...configured])];
+  return [.../* @__PURE__ */ new Set(["anthropic", "ollama", ...configured])].filter((n) => config.providers?.[n] !== false);
+}
+var TUNABLE = ["maxTokens", "maxLines", "debounceMs", "linesBefore", "linesAfter", "alternatives"];
+function settingsFor(name) {
+  const result = {};
+  for (const key of TUNABLE) {
+    for (const source of [defaults3, registry2[name].defaults ?? {}, own, providerOptions(name)]) {
+      if (source[key] !== void 0 && source[key] !== null) result[key] = source[key];
+    }
+  }
+  return result;
 }
 function currentModel() {
   const parsed = parseModelId(config.model);
@@ -28493,7 +28642,7 @@ function currentModel() {
   const name = enabled[0];
   return { provider: name, model: registry2[name].models[0].id };
 }
-var defaults2 = {
+var defaults3 = {
   model: "anthropic/claude-haiku-5-5",
   providers: {},
   maxTokens: 256,
@@ -28503,7 +28652,8 @@ var defaults2 = {
   linesAfter: 50,
   alternatives: 2
 };
-var config = { ...defaults2 };
+var config = { ...defaults3 };
+var own = {};
 var conn = createConnection();
 var docs = /* @__PURE__ */ new Map();
 var last = null;
@@ -28521,10 +28671,10 @@ function uriToPath(uri) {
   }
 }
 function applySettings(settings = {}) {
-  const own = settings.anymodel ?? {};
+  own = settings.anymodel ?? {};
   const selected = settings.github?.copilot?.selectedCompletionModel;
-  const next = { ...defaults2 };
-  for (const key of Object.keys(defaults2)) {
+  const next = { ...defaults3 };
+  for (const key of Object.keys(defaults3)) {
     if (own[key] !== void 0 && own[key] !== null) next[key] = own[key];
   }
   if (selected && parseModelId(selected)) next.model = selected;
@@ -28557,9 +28707,8 @@ function continuation(uri, ctx) {
   const rest = full.slice(ctx.before.length);
   return rest.trim() ? rest : null;
 }
-async function generate2(uri, ctx, { variant, signal }) {
-  const { provider: name, model } = currentModel();
-  const options = { model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
+async function generate2(uri, ctx, { name, model, settings, variant, signal }) {
+  const options = { model, maxTokens: settings.maxTokens, maxLines: ctx.singleLine ? 1 : settings.maxLines, variant, signal };
   let result;
   try {
     result = await getProvider(name).complete(ctx, options);
@@ -28593,21 +28742,22 @@ async function complete(params, signal, { invoked }) {
   const uri = params.textDocument?.uri;
   const doc = docs.get(uri);
   if (!doc) return { items: [] };
-  const { provider: name } = currentModel();
+  const { provider: name, model } = currentModel();
   if (!getProvider(name).ready()) {
     setStatus("Error", missingKey(name));
     return { items: [] };
   }
-  const ctx = buildContext(doc, params.position, config);
+  const settings = settingsFor(name);
+  const ctx = buildContext(doc, params.position, settings);
   const completions = [];
   const cached = continuation(uri, ctx);
   if (cached) completions.push(cached);
   const variants = [];
   if (!cached) variants.push(false);
-  if (invoked) for (let i = 0; i < config.alternatives; i++) variants.push(true);
+  if (invoked) for (let i = 0; i < settings.alternatives; i++) variants.push(true);
   if (variants.length) {
-    if (!invoked && !cached) await sleep2(config.debounceMs, signal);
-    const results = await Promise.allSettled(variants.map((variant) => generate2(uri, ctx, { variant, signal })));
+    if (!invoked && !cached) await sleep2(settings.debounceMs, signal);
+    const results = await Promise.allSettled(variants.map((variant) => generate2(uri, ctx, { name, model, settings, variant, signal })));
     if (signal.aborted) throw signal.reason;
     let ok = false;
     for (const r of results) {
@@ -28644,13 +28794,30 @@ function missingKey(name) {
   const env = registry2[name].auth?.apiKeyEnv;
   return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ""}.`;
 }
+var warmed = null;
+function warmUp() {
+  const { provider: name, model } = currentModel();
+  const id = modelId(name, model);
+  if (warmed === id) return;
+  warmed = id;
+  const provider = getProvider(name);
+  if (!provider.ready()) return;
+  provider.listModels().catch(() => {
+  });
+  if (provider.warm) {
+    const started = performance.now();
+    provider.warm(model).then(
+      () => log(`${id} loaded in ${Math.round(performance.now() - started)}ms`),
+      (err) => log(`${id} could not be loaded: ${err?.message ?? err}`, 2)
+    );
+  }
+}
 conn.onNotification("initialized", () => {
   const { provider: name, model } = currentModel();
   const provider = getProvider(name);
   if (provider.ready()) {
     setStatus("Normal");
-    provider.listModels().catch(() => {
-    });
+    warmUp();
   } else {
     setStatus("Error", missingKey(name));
   }
@@ -28661,6 +28828,7 @@ conn.onNotification("exit", () => process.exit(0));
 conn.onNotification("workspace/didChangeConfiguration", (params) => {
   applySettings(params.settings);
   log(`config: ${JSON.stringify(config)}`);
+  warmUp();
 });
 conn.onNotification("textDocument/didOpen", ({ textDocument }) => {
   docs.set(textDocument.uri, { text: textDocument.text, languageId: textDocument.languageId, path: uriToPath(textDocument.uri) });

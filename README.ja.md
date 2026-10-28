@@ -1,7 +1,7 @@
 # copilot-anymodel.nvim
 
 [copilot.vim](https://github.com/github/copilot.vim) の操作感のまま、裏のモデルを選べる Neovim プラグイン。
-現在は Claude に対応。OpenAI と Ollama にも対応予定。
+現在は Claude と、Ollama 経由のローカルモデルに対応。OpenAI にも対応予定。
 
 ゴーストテキスト、`<Tab>` での受け入れ、候補の切り替え、パネルは copilot.vim がそのまま担当し、
 このプラグインは裏の language server を、選んだモデルを使うものに差し替える。
@@ -17,8 +17,9 @@
 - Neovim 0.10 以上（0.12 で動作確認）
 - Node.js 20 以上（copilot.vim も必要とする）
 - [copilot.vim](https://github.com/github/copilot.vim)
-- クレジット残高のある Anthropic API キー（<https://console.anthropic.com>）
+- Claude を使う場合: クレジット残高のある Anthropic API キー（<https://console.anthropic.com>）
   ※ claude.ai の Pro / Max 契約には API 利用料は含まれない
+- ローカルモデルを使う場合: 起動中の [Ollama](https://ollama.com)（キー不要）
 
 サーバーは `dist/` に 1 ファイルで同梱しているので `npm install` は不要。
 
@@ -113,9 +114,36 @@ require('copilot_anymodel').setup({
 プロバイダの環境変数（`ANTHROPIC_API_KEY`）があれば、保存したキーより優先される。
 `g:copilot_filetypes` など copilot.vim の設定はそのまま使える。
 
+## プロバイダ
+
+| プロバイダ | 準備 | `:Cop model` に出るモデル |
+|---|---|---|
+| `anthropic` | `:Cop key anthropic` | キーで使える全モデル（Models API から取得） |
+| `ollama` | Ollama を起動しておく | インストール済みで文章を生成できる全モデル |
+
+**Ollama について。** `insert` 機能を持つモデル（一覧で `FIM` と表示。例 `qwen2.5-coder`）は
+カーソル前後を渡して間を埋める FIM 方式で、それ以外のモデルはチャット方式で補完する。
+モデルは選んだ時点で読み込まれ、30 分間メモリに残る。
+ローカル実行では、入力のたびに変更箇所より後ろを読み直すため、Ollama では既定値を小さくしている
+（`linesAfter = 15`、`maxLines = 4`、`maxTokens = 128`、`alternatives = 0`）。プロバイダごとに変更できる:
+
+```lua
+server = {
+  model = 'ollama/qwen2.5-coder:7b',
+  providers = {
+    ollama = { baseUrl = 'http://localhost:11434', keepAlive = '30m', linesAfter = 30 },
+    -- ollama = false,  -- Ollama のモデルを一覧に出さない
+  },
+},
+```
+
+`baseUrl` を指定しなければ `$OLLAMA_HOST` が使われる。速度は機械次第で、GPU なしの Intel i9 で
+`qwen2.5-coder:7b` の場合、最初のトークンまで約 3 秒、1 行の候補で約 5 秒。
+
 ## データ送信と費用
 
-- 候補を出すたびに、編集中ファイルのカーソル周辺（既定で上 200 行・下 50 行）が Anthropic API に送られる。
+- 候補を出すたびに、編集中ファイルのカーソル周辺（既定で上 200 行・下 50 行）がモデルの提供元に送られる。
+  Ollama の場合は手元の機械（または指定した Ollama サーバー）から出ない。
   送りたくないファイルでは止める:
 
   ```vim
