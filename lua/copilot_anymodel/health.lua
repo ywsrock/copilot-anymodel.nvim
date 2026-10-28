@@ -36,15 +36,21 @@ function M.check()
   local backend = vim.g.copilot_anymodel_backend
   health.info('backend: ' .. tostring(backend) .. ' (switch with :Cop toggle)')
 
-  local source = cc.key_source()
-  if source == 'env' then
-    health.ok('API key from ANTHROPIC_API_KEY')
-  elseif source == 'file' then
-    health.ok('API key from ' .. cc.paths.key_file)
-  elseif backend == 'anymodel' then
-    health.error('no Anthropic API key', 'Run :Cop key')
-  else
-    health.info('no Anthropic API key (only needed for the anymodel backend)')
+  local active = cc.model_provider()
+  health.info('model provider: ' .. active .. ' (pick a model with :Cop model)')
+  local names = vim.tbl_keys(cc.key_providers)
+  table.sort(names)
+  for _, provider in ipairs(names) do
+    local source = cc.key_source(provider)
+    if source == 'env' then
+      health.ok(provider .. ' API key from ' .. cc.key_providers[provider].env)
+    elseif source == 'file' then
+      health.ok(provider .. ' API key from ' .. cc.key_file(provider))
+    elseif backend == 'anymodel' and provider == active then
+      health.error('no ' .. provider .. ' API key', 'Run :Cop key ' .. provider)
+    else
+      health.info('no ' .. provider .. ' API key (only needed for ' .. provider .. ' models)')
+    end
   end
 end
 

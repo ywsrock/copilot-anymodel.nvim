@@ -13,7 +13,7 @@ local backends = { 'anymodel', 'copilot' }
 
 M.paths = {
   server = root .. '/dist/server.mjs',
-  key_file = vim.fn.stdpath('data') .. '/copilot-anymodel/api_key',
+  key_dir = vim.fn.stdpath('data') .. '/copilot-anymodel/keys',
   backend_file = vim.fn.stdpath('state') .. '/copilot-anymodel/backend',
   model_file = vim.fn.stdpath('state') .. '/copilot-anymodel/model',
 }
@@ -21,9 +21,24 @@ M.paths = {
 M.config = {
   -- Backend used until :Cop backend picks another one.
   default_backend = 'anymodel',
-  -- Passed to the server, e.g. { model = 'claude-sonnet-5-5', debounceMs = 50 }.
+  -- Passed to the server, e.g. { model = 'anthropic/claude-sonnet-5-5', debounceMs = 50 }.
   server = {},
 }
+
+-- Providers that need an API key (same names as server/providers/).
+M.key_providers = {
+  anthropic = { env = 'ANTHROPIC_API_KEY', prefix = 'sk-ant-', url = 'https://console.anthropic.com' },
+}
+
+local function key_provider_names()
+  local names = vim.tbl_keys(M.key_providers)
+  table.sort(names)
+  return names
+end
+
+function M.key_file(provider)
+  return M.paths.key_dir .. '/' .. provider
+end
 
 local function notify(msg, level)
   vim.notify('Cop: ' .. msg, level or vim.log.levels.INFO)
@@ -51,12 +66,14 @@ function M.saved_backend()
   return valid_backend(name) and name or M.config.default_backend
 end
 
--- Where the API key comes from: 'env', 'file' or nil.
-function M.key_source()
-  if (vim.env.ANTHROPIC_API_KEY or '') ~= '' then
+-- Where a provider's API key comes from: 'env', 'file' or nil.
+function M.key_source(provider)
+  provider = provider or 'anthropic'
+  local env = M.key_providers[provider] and M.key_providers[provider].env
+  if env and (vim.env[env] or '') ~= '' then
     return 'env'
   end
-  if vim.trim(read_file(M.paths.key_file) or '') ~= '' then
+  if vim.trim(read_file(M.key_file(provider)) or '') ~= '' then
     return 'file'
   end
   return nil
@@ -68,15 +85,22 @@ function M.saved_model()
   return model ~= '' and model or nil
 end
 
-local function is_claude_model(id)
-  return type(id) == 'string' and id:match('^claude%-') ~= nil
+-- Our ids are "<provider>/<model>"; GitHub's have no slash.
+local function is_our_model(id)
+  return type(id) == 'string' and (id:find('/', 1, true) ~= nil or id:match('^claude%-') ~= nil)
+end
+
+-- Provider of the selected model.
+function M.model_provider()
+  local id = M.saved_model() or M.config.server.model or 'anthropic/claude-haiku-5-5'
+  return id:match('^([%w_-]+)/') or 'anthropic'
 end
 
 -- :Copilot model stores its choice in g:copilot_settings, which both backends
 -- receive. Drops it when it would override :Cop model or reach GitHub.
 local function clear_copilot_model(keep)
   local settings = vim.g.copilot_settings
-  if type(settings) == 'table' and is_claude_model(settings.selectedCompletionModel)
+  if type(settings) == 'table' and is_our_model(settings.selectedCompletionModel)
       and settings.selectedCompletionModel ~= keep then
     settings.selectedCompletionModel = nil
     vim.g.copilot_settings = settings
@@ -86,7 +110,7 @@ end
 local function apply(backend)
   vim.g.copilot_anymodel_backend = backend
   if backend == 'anymodel' then
-    vim.g.copilot_command = { M.node_command(), M.paths.server, '--key-file', M.paths.key_file }
+    vim.g.copilot_command = { M.node_command(), M.paths.server, '--key-dir', M.paths.key_dir }
   else
     -- Unset: copilot.vim then starts GitHub's own language server.
     vim.g.copilot_command = nil
@@ -121,8 +145,9 @@ function M.set_backend(name)
   vim.fn.writefile({ name }, M.paths.backend_file)
   apply(name)
   restart()
-  if name == 'anymodel' and not M.key_source() then
-    notify('backend: anymodel (no API key yet, run :Cop key)', vim.log.levels.WARN)
+  local provider = M.model_provider()
+  if name == 'anymodel' and M.key_providers[provider] and not M.key_source(provider) then
+    notify('backend: anymodel (no ' .. provider .. ' API key yet, run :Cop key ' .. provider .. ')', vim.log.levels.WARN)
   elseif name == 'copilot' then
     notify('backend: copilot (run :Copilot setup once if you are not signed in to GitHub)')
   else
@@ -139,35 +164,62 @@ end
 function M.normalize_key(text)
   local key = vim.trim(text)
   key = key:gsub('^export%s+', '')
-  key = key:gsub('^ANTHROPIC_API_KEY%s*=%s*', '')
+  key = key:gsub('^[%u_][%u%d_]*%s*=%s*', '')
   key = key:gsub('^(["\'])(.*)%1$', '%2')
   return vim.trim(key)
 end
 
--- Saves the key with owner-only permissions; the running server picks it up
--- on the next request, no restart needed.
-function M.setup_key()
-  local key = M.normalize_key(vim.fn.inputsecret('Anthropic API key (https://console.anthropic.com): '))
+-- Runs fn(provider) for the given provider, or asks which one when there are several.
+local function with_key_provider(provider, fn)
+  if provider then
+    if not M.key_providers[provider] then
+      notify('unknown provider ' .. provider .. ' (' .. table.concat(key_provider_names(), ', ') .. ')', vim.log.levels.ERROR)
+      return
+    end
+    fn(provider)
+    return
+  end
+  local names = key_provider_names()
+  if #names == 1 then
+    fn(names[1])
+    return
+  end
+  vim.ui.select(names, { prompt = 'Provider' }, function(choice)
+    if choice then
+      fn(choice)
+    end
+  end)
+end
+
+local function save_key(provider)
+  local info = M.key_providers[provider]
+  local key = M.normalize_key(vim.fn.inputsecret(provider .. ' API key (' .. info.url .. '): '))
   vim.cmd('redraw')
   if key == '' then
     notify('cancelled')
     return
   end
-  if not key:match('^sk%-ant%-') then
-    notify('the key does not start with "sk-ant-", saving anyway', vim.log.levels.WARN)
+  if info.prefix and key:sub(1, #info.prefix) ~= info.prefix then
+    notify('the key does not start with "' .. info.prefix .. '", saving anyway', vim.log.levels.WARN)
   end
-  local dir = vim.fn.fnamemodify(M.paths.key_file, ':h')
-  vim.fn.mkdir(dir, 'p', tonumber('700', 8))
-  local tmp = M.paths.key_file .. '.tmp'
+  local path = M.key_file(provider)
+  vim.fn.mkdir(M.paths.key_dir, 'p', tonumber('700', 8))
+  local tmp = path .. '.tmp'
   local fd = assert(uv.fs_open(tmp, 'w', tonumber('600', 8)))
   uv.fs_write(fd, key .. '\n')
   uv.fs_close(fd)
   uv.fs_chmod(tmp, tonumber('600', 8))
-  assert(uv.fs_rename(tmp, M.paths.key_file))
-  notify('API key saved to ' .. M.paths.key_file)
-  if vim.env.ANTHROPIC_API_KEY and vim.env.ANTHROPIC_API_KEY ~= '' then
-    notify('note: ANTHROPIC_API_KEY is set and takes precedence over the saved key', vim.log.levels.WARN)
+  assert(uv.fs_rename(tmp, path))
+  notify(provider .. ' API key saved to ' .. path)
+  if (vim.env[info.env] or '') ~= '' then
+    notify('note: ' .. info.env .. ' is set and takes precedence over the saved key', vim.log.levels.WARN)
   end
+end
+
+-- Saves the key with owner-only permissions; the running server picks it up
+-- on the next request, no restart needed.
+function M.setup_key(provider)
+  with_key_provider(provider, save_key)
 end
 
 function M.set_model(id)
@@ -191,7 +243,7 @@ function M.list_models()
 end
 
 -- Ids for command-line completion, refreshed by each listing.
-local model_cache = { 'claude-haiku-5-5', 'claude-sonnet-5-5' }
+local model_cache = { 'anthropic/claude-haiku-5-5', 'anthropic/claude-sonnet-5-5' }
 
 -- Without an id, lists every available model and lets the user pick one.
 function M.select_model(id)
@@ -210,9 +262,9 @@ function M.select_model(id)
   end
   model_cache = vim.tbl_map(function(m) return m.id end, models)
   vim.ui.select(models, {
-    prompt = 'Claude model',
+    prompt = 'Model',
     format_item = function(m)
-      return string.format('%s%s (%s)%s', m.current and '* ' or '  ', m.modelName, m.id, m.deprecated and ' [deprecated]' or '')
+      return string.format('%s%-24s %s%s', m.current and '* ' or '  ', m.modelName, m.id, m.deprecated and ' [deprecated]' or '')
     end,
   }, function(choice)
     if choice then
@@ -221,24 +273,32 @@ function M.select_model(id)
   end)
 end
 
-function M.logout()
-  if vim.fn.filereadable(M.paths.key_file) == 1 then
-    vim.fn.delete(M.paths.key_file)
-    notify('saved API key deleted')
+local function delete_key(provider)
+  local path = M.key_file(provider)
+  if vim.fn.filereadable(path) == 1 then
+    vim.fn.delete(path)
+    notify('saved ' .. provider .. ' API key deleted')
   else
-    notify('no saved API key')
+    notify('no saved ' .. provider .. ' API key')
   end
 end
 
+function M.logout(provider)
+  with_key_provider(provider, delete_key)
+end
+
 function M.status()
-  local source = M.key_source()
-  print(table.concat({
+  local lines = {
     'backend:  ' .. tostring(vim.g.copilot_anymodel_backend),
-    'model:    ' .. (M.saved_model() or M.config.server.model or 'claude-haiku-5-5 (default)'),
-    'api key:  ' .. (source == 'env' and 'ANTHROPIC_API_KEY' or source == 'file' and M.paths.key_file or 'not set'),
-    'server:   ' .. M.paths.server,
-    'node:     ' .. M.node_command(),
-  }, '\n'))
+    'model:    ' .. (M.saved_model() or M.config.server.model or 'anthropic/claude-haiku-5-5 (default)'),
+  }
+  for _, provider in ipairs(key_provider_names()) do
+    local source = M.key_source(provider)
+    local where = source == 'env' and M.key_providers[provider].env or source == 'file' and M.key_file(provider) or 'not set'
+    table.insert(lines, string.format('key:      %s: %s', provider, where))
+  end
+  vim.list_extend(lines, { 'server:   ' .. M.paths.server, 'node:     ' .. M.node_command() })
+  print(table.concat(lines, '\n'))
 end
 
 local subcommands = {
@@ -301,6 +361,8 @@ local function complete(_, line)
     return backends
   elseif n == 3 and args[2] == 'model' then
     return model_cache
+  elseif n == 3 and (args[2] == 'key' or args[2] == 'logout') then
+    return key_provider_names()
   end
   return {}
 end
@@ -311,7 +373,7 @@ function M.init()
   vim.api.nvim_create_user_command('Cop', command, {
     nargs = '*',
     complete = complete,
-    desc = 'copilot-anymodel: model [id] | toggle | backend [anymodel|copilot] | key | status | logout',
+    desc = 'copilot-anymodel: model [id] | toggle | backend [anymodel|copilot] | key [provider] | status | logout [provider]',
   })
 end
 

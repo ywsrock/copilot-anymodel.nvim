@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // copilot.vim compatible language server that completes code with Claude.
 //
-//   let g:copilot_command = ['node', '/path/to/server.mjs', '--key-file', '/path/to/api_key']
+//   let g:copilot_command = ['node', '/path/to/server.mjs', '--key-dir', '/path/to/keys']
 
 import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from './lib/lsp.js';
 import { buildContext } from './lib/prompt.js';
 import { clean, toItem } from './lib/postprocess.js';
 import { createCredentials } from './lib/credentials.js';
-import * as claude from './providers/claude.js';
+import { modelId, parseModelId } from './lib/models.js';
+import * as anthropic from './providers/anthropic.js';
 import * as mock from './providers/mock.js';
 
 const VERSION = '0.1.0';
@@ -20,14 +22,43 @@ function argValue(name) {
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
 
-const providers = { claude, mock };
-const providerName = process.env.COPILOT_ANYMODEL_PROVIDER ?? 'claude';
-const providerModule = providers[providerName];
-if (!providerModule) throw new Error(`unknown provider: ${providerName}`);
-const provider = providerModule.createProvider({ credentials: createCredentials({ keyFile: argValue('--key-file') }) });
+const registry = { anthropic, mock };
+const keyDir = argValue('--key-dir');
+// Tests pin the provider list; normally every provider that needs no setup, plus
+// those configured under `providers`, is available.
+const pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(',').filter(Boolean) ?? null;
+for (const name of pinned ?? []) if (!registry[name]) throw new Error(`unknown provider: ${name}`);
+
+const instances = new Map(); // name -> provider
+function getProvider(name) {
+  if (!registry[name]) return null;
+  if (!instances.has(name)) {
+    const mod = registry[name];
+    const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join(keyDir, name) : null, ...mod.auth });
+    instances.set(name, mod.createProvider({ credentials, options: config.providers?.[name] ?? {} }));
+  }
+  return instances.get(name);
+}
+
+function enabledProviders() {
+  if (pinned) return pinned;
+  const configured = Object.keys(config.providers ?? {}).filter((n) => registry[n] && n !== 'mock');
+  return [...new Set(['anthropic', ...configured])];
+}
+
+// The configured model, or the first enabled provider's default when its
+// provider is unknown or disabled.
+function currentModel() {
+  const parsed = parseModelId(config.model);
+  const enabled = enabledProviders();
+  if (parsed && enabled.includes(parsed.provider)) return parsed;
+  const name = enabled[0];
+  return { provider: name, model: registry[name].models[0].id };
+}
 
 const defaults = {
-  model: providerModule.models[0].id,
+  model: 'anthropic/claude-haiku-5-5',
+  providers: {},
   maxTokens: 256,
   maxLines: 8,
   debounceMs: 100,
@@ -67,7 +98,8 @@ function applySettings(settings = {}) {
     if (own[key] !== undefined && own[key] !== null) next[key] = own[key];
   }
   // :Copilot model may hold a GitHub model id picked while on the copilot backend.
-  if (selected && provider.ownsModel(selected)) next.model = selected;
+  if (selected && parseModelId(selected)) next.model = selected;
+  if (JSON.stringify(next.providers) !== JSON.stringify(config.providers)) instances.clear();
   config = next;
 }
 
@@ -103,14 +135,22 @@ function continuation(uri, ctx) {
 }
 
 async function generate(uri, ctx, { variant, signal }) {
-  const options = { model: config.model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
-  const { text, stats } = await provider.complete(ctx, options);
+  const { provider: name, model } = currentModel();
+  const options = { model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
+  let result;
+  try {
+    result = await getProvider(name).complete(ctx, options);
+  } catch (err) {
+    err.provider = name;
+    throw err;
+  }
+  const { text, raw, stats } = result;
   const completion = clean(text, ctx, { maxLines: options.maxLines });
   const u = stats.usage;
   if (process.env.COPILOT_ANYMODEL_DUMP) {
-    appendFileSync(process.env.COPILOT_ANYMODEL_DUMP, `===== ${ctx.path}:${ctx.row + 1}\n${ctx.stable}${ctx.volatile}\n----- raw\n${text}\n`);
+    appendFileSync(process.env.COPILOT_ANYMODEL_DUMP, `===== ${ctx.path}:${ctx.row + 1}\n${ctx.stable}${ctx.volatile}\n----- raw\n${raw}\n`);
   }
-  log(`${stats.model}${variant ? ' (alt)' : ''} at=${ctx.row + 1}:${ctx.prefixLine.length} ttft=${stats.ttftMs}ms total=${stats.totalMs}ms` +
+  log(`${modelId(name, stats.model)}${variant ? ' (alt)' : ''} at=${ctx.row + 1}:${ctx.prefixLine.length} ttft=${stats.ttftMs}ms total=${stats.totalMs}ms` +
     (u ? ` in=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0}` : '') +
     ` chars=${completion.length}`);
   if (!variant && completion) last = { uri, before: ctx.before, after: ctx.after, completion };
@@ -119,7 +159,7 @@ async function generate(uri, ctx, { variant, signal }) {
 
 function reportError(err) {
   if (err?.status === 401 || err?.status === 403) {
-    setStatus('Error', `Authentication failed (${err.status}): run :Cop key to set a valid key`);
+    setStatus('Error', `Authentication failed (${err.status}): run :Cop key ${err.provider ?? ''} to set a valid key`);
   } else {
     setStatus('Warning', String(err?.message ?? err));
   }
@@ -130,8 +170,9 @@ async function complete(params, signal, { invoked }) {
   const uri = params.textDocument?.uri;
   const doc = docs.get(uri);
   if (!doc) return { items: [] };
-  if (!provider.hasCredentials()) {
-    setStatus('Error', MISSING_KEY);
+  const { provider: name } = currentModel();
+  if (!getProvider(name).ready()) {
+    setStatus('Error', missingKey(name));
     return { items: [] };
   }
   const ctx = buildContext(doc, params.position, config);
@@ -184,16 +225,21 @@ conn.onRequest('initialize', (params) => {
   };
 });
 
-const MISSING_KEY = 'No Anthropic API key. Run :Cop key (or set ANTHROPIC_API_KEY).';
+function missingKey(name) {
+  const env = registry[name].auth?.apiKeyEnv;
+  return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ''}.`;
+}
 
 conn.onNotification('initialized', () => {
-  if (provider.hasCredentials()) {
+  const { provider: name, model } = currentModel();
+  const provider = getProvider(name);
+  if (provider.ready()) {
     setStatus('Normal');
     provider.listModels().catch(() => {});
   } else {
-    setStatus('Error', MISSING_KEY);
+    setStatus('Error', missingKey(name));
   }
-  log(`started: provider=${provider.name} model=${config.model}`, 3);
+  log(`started: model=${modelId(name, model)} providers=${enabledProviders().join(',')}`, 3);
 });
 
 conn.onRequest('shutdown', () => null);
@@ -239,23 +285,27 @@ conn.onRequest('textDocument/copilotPanelCompletion', (params, signal) =>
 
 // ---------------------------------------------------------------- copilot.vim compatibility
 
-const user = `${provider.name}`;
+const user = 'anymodel';
 conn.onRequest('signIn', () => ({ status: 'AlreadySignedIn', user }));
 conn.onRequest('signInConfirm', () => ({ status: 'OK', user }));
 conn.onRequest('signOut', () => ({ status: 'NotSignedIn' }));
 conn.onRequest('checkStatus', () => ({ status: 'OK', user }));
 conn.onRequest('getVersion', () => ({ version: VERSION, buildType: 'dev', runtimeVersion: `node/${process.versions.node}` }));
+// Every model of every ready provider; a provider that fails to list is skipped.
 conn.onRequest('copilot/models', async () => {
-  const list = await provider.listModels();
-  return list.map((m) => ({
-    id: m.id,
+  const current = currentModel();
+  const names = enabledProviders().filter((n) => getProvider(n).ready());
+  const lists = await Promise.all(names.map((n) => getProvider(n).listModels().catch(() => [])));
+  return names.flatMap((name, i) => lists[i].map((m) => ({
+    id: modelId(name, m.id),
     modelName: m.modelName,
     modelFamily: m.id,
+    provider: name,
     preview: false,
     deprecated: Boolean(m.deprecatedAt),
-    current: m.id === config.model,
+    current: name === current.provider && m.id === current.model,
     scopes: ['completion'],
-  }));
+  })));
 });
 // Neovim drops a null result entirely and copilot.vim then fails on the missing key.
 conn.onRequest('workspace/executeCommand', () => ({}));

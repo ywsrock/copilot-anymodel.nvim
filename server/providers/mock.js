@@ -1,18 +1,17 @@
 // Offline provider for tests: COPILOT_ANYMODEL_MOCK_TEXT is returned as the completion.
 
+export const auth = null;
+
 export const models = [
-  { id: 'mock', modelName: 'Mock' },
-  { id: 'mock-2', modelName: 'Mock 2' },
+  { id: 'fast', modelName: 'Mock Fast' },
+  { id: 'alt', modelName: 'Mock Alt' },
 ];
 
 export function createProvider() {
   return {
     name: 'mock',
-    hasCredentials() {
+    ready() {
       return true;
-    },
-    ownsModel(id) {
-      return typeof id === 'string' && id.startsWith('mock');
     },
     async listModels() {
       return models;
@@ -22,7 +21,7 @@ export function createProvider() {
       signal?.throwIfAborted();
       const text = (process.env.COPILOT_ANYMODEL_MOCK_TEXT ?? 'mock()').replaceAll('\\n', '\n');
       const body = variant ? `${text} // alt` : text;
-      return { text: `<completion>${body}</completion>`, stats: { model, ttftMs: 20, totalMs: 20, usage: null } };
+      return { text: body, raw: body, stats: { model, ttftMs: 20, totalMs: 20, usage: null } };
     },
   };
 }

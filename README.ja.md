@@ -49,8 +49,8 @@ Plug 'ywsrock/copilot-anymodel.nvim'
 :Cop key
 ```
 
-を実行して API キーを貼り付ける。キーは `stdpath('data')/copilot-anymodel/api_key`
-（macOS / Linux では `~/.local/share/nvim/copilot-anymodel/api_key`）に本人だけが読める権限で保存される。
+を実行して Anthropic の API キーを貼り付ける。キーは `stdpath('data')/copilot-anymodel/keys/anthropic`
+（macOS / Linux では `~/.local/share/nvim/copilot-anymodel/keys/anthropic`）に本人だけが読める権限で保存される。
 `:Copilot setup`（GitHub へのログイン）は不要。
 
 `:checkhealth copilot_anymodel` で Node、copilot.vim、API キーをまとめて確認できる。
@@ -78,12 +78,12 @@ Plug 'ywsrock/copilot-anymodel.nvim'
 | コマンド | 内容 |
 |---|---|
 | `:Cop` | 下のコマンドをメニューから選ぶ |
-| `:Cop model [id]` | キーで使える全モデル（Models API から取得）から選ぶ |
+| `:Cop model [id]` | 設定済みの全プロバイダのモデルから選ぶ（例 `anthropic/claude-haiku-5-5`） |
 | `:Cop toggle` | 同梱サーバー ⇔ GitHub Copilot を切り替え |
 | `:Cop backend anymodel\|copilot` | 同梱サーバー / GitHub 純正サーバーを選ぶ |
-| `:Cop key` | API キーを保存 |
+| `:Cop key [provider]` | プロバイダの API キーを保存（`anthropic`） |
 | `:Cop status` | バックエンド、モデル、キーの読み込み元、パスを表示 |
-| `:Cop logout` | 保存した API キーを削除 |
+| `:Cop logout [provider]` | 保存した API キーを削除 |
 
 選んだバックエンドとモデルは次回の起動時も使われる。各モデルには、そのモデルが受け付ける
 最速の設定（可能なら thinking 無効、effort low）が自動で使われる。実測では既定の Haiku 5.5 が最も速い。
@@ -98,18 +98,19 @@ Plug 'ywsrock/copilot-anymodel.nvim'
 require('copilot_anymodel').setup({
   default_backend = 'anymodel', -- :Cop backend で選ぶまでの既定
   server = {
-    model = 'claude-haiku-5-5', -- :Cop model に出る任意の id（そちらの選択が優先）
+    model = 'anthropic/claude-haiku-5-5', -- "<プロバイダ>/<モデル>"。:Cop model の選択が優先
     debounceMs = 100,           -- 最後のキー入力から待つ時間
     maxLines = 8,               -- 複数行の候補の最大行数
     maxTokens = 256,
     linesBefore = 200,          -- カーソルより上に送る行数
     linesAfter = 50,            -- 下に送る行数
     alternatives = 2,           -- 候補切り替え時に追加で取る数
+    providers = {},             -- プロバイダごとの設定（今後追加するプロバイダ用）
   },
 })
 ```
 
-環境変数 `ANTHROPIC_API_KEY` があれば、保存したキーより優先される。
+プロバイダの環境変数（`ANTHROPIC_API_KEY`）があれば、保存したキーより優先される。
 `g:copilot_filetypes` など copilot.vim の設定はそのまま使える。
 
 ## データ送信と費用
@@ -150,7 +151,7 @@ CI で毎週、最新の copilot.vim との組み合わせをテストしてい�
 | 症状 | 対処 |
 |---|---|
 | 候補が出ない | `:Copilot status`、次に `:checkhealth copilot_anymodel` |
-| `No Anthropic API key` | `:Cop key` |
+| `No API key for anthropic` | `:Cop key anthropic` |
 | `Authentication failed (401)` | キーが誤り・無効。`:Cop key` をやり直す |
 | `credit balance is too low` | Anthropic のコンソールでクレジットを購入 |
 | おかしな候補が出る | `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` で起動し、送ったプロンプトと生の応答を確認 |

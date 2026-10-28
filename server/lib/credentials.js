@@ -1,6 +1,6 @@
-// Resolves the Anthropic API key: ANTHROPIC_API_KEY first, then the key file
-// written by `:Cop key`. The file is re-read when it changes, so a
-// key saved while Neovim is running takes effect on the next request.
+// Resolves a provider's API key: its environment variable first, then the key
+// file written by `:Cop key <provider>`. The file is re-read when it changes, so
+// a key saved while Neovim is running takes effect on the next request.
 
 import { readFileSync, statSync } from 'node:fs';
 
@@ -8,12 +8,13 @@ import { readFileSync, statSync } from 'node:fs';
 export function normalizeKey(text) {
   return text.trim()
     .replace(/^export\s+/, '')
-    .replace(/^ANTHROPIC_API_KEY\s*=\s*/, '')
+    .replace(/^[A-Z_][A-Z0-9_]*\s*=\s*/, '')
     .replace(/^(['"])(.*)\1$/, '$2')
     .trim();
 }
 
-export function createCredentials({ keyFile = null, env = process.env } = {}) {
+// apiKeyEnv / authTokenEnv: environment variable names for this provider.
+export function createCredentials({ keyFile = null, apiKeyEnv = null, authTokenEnv = null, env = process.env } = {}) {
   let cache = { mtimeMs: -1, key: null };
 
   function fromFile() {
@@ -30,12 +31,12 @@ export function createCredentials({ keyFile = null, env = process.env } = {}) {
   }
 
   return {
-    // { apiKey } for the SDK, or null when nothing is configured.
+    // { apiKey } or { authToken }, or null when nothing is configured.
     resolve() {
-      if (env.ANTHROPIC_API_KEY) return { apiKey: env.ANTHROPIC_API_KEY, source: 'env' };
+      if (apiKeyEnv && env[apiKeyEnv]) return { apiKey: env[apiKeyEnv], source: 'env' };
       const key = fromFile();
       if (key) return { apiKey: key, source: 'file' };
-      if (env.ANTHROPIC_AUTH_TOKEN) return { authToken: env.ANTHROPIC_AUTH_TOKEN, source: 'env' };
+      if (authTokenEnv && env[authTokenEnv]) return { authToken: env[authTokenEnv], source: 'env' };
       return null;
     },
   };

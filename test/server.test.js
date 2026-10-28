@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildContext } from '../server/lib/prompt.js';
+import { buildContext, extractCompletion } from '../server/lib/prompt.js';
+import { parseModelId } from '../server/lib/models.js';
 import { clean, toItem } from '../server/lib/postprocess.js';
 import { createCredentials, normalizeKey } from '../server/lib/credentials.js';
-import { speedParams } from '../server/providers/claude.js';
+import { speedParams } from '../server/providers/anthropic.js';
 
 // Tests run the bundle users actually get; `npm run build` first.
 const serverPath = fileURLToPath(new URL('../dist/server.mjs', import.meta.url));
@@ -62,16 +63,16 @@ function startServer(env = {}, args = []) {
 test('clean strips fences, echoes and suffix overlap', () => {
   const doc = { text: 'const x = foo(\n', languageId: 'javascript', path: 'a.js' };
   const ctx = buildContext(doc, { line: 0, character: 14 });
-  assert.equal(clean('<completion>```js\nbar, baz\n```</completion>', ctx), 'bar, baz');
-  assert.equal(clean('Looking at the code, nothing is needed.', ctx), '');
-  assert.equal(clean('Sure: <completion>bar)</completion> done', ctx), 'bar)');
+  assert.equal(clean('```js\nbar, baz\n```', ctx), 'bar, baz');
+  assert.equal(extractCompletion('Looking at the code, nothing is needed.'), '');
+  assert.equal(extractCompletion('Sure: <completion>bar)</completion> done'), 'bar)');
 
   const mid = buildContext({ text: 'call(a)\n', languageId: 'js', path: 'a.js' }, { line: 0, character: 6 });
   assert.equal(mid.singleLine, true);
-  assert.equal(clean('<completion>, b)\nmore', mid), ', b');
+  assert.equal(clean(', b)\nmore', mid), ', b');
 
   const echo = buildContext({ text: '  return \n', languageId: 'js', path: 'a.js' }, { line: 0, character: 9 });
-  assert.equal(clean('<completion>return a + b</completion>', echo), 'a + b');
+  assert.equal(clean('return a + b', echo), 'a + b');
 });
 
 test('toItem starts at column 0 and keeps model indentation on blank lines', () => {
@@ -141,7 +142,7 @@ test('LSP round trip: inline completion, continuation cache, cancel, compat meth
 test('clean cuts the completion where it reaches existing code', () => {
   const text = 'def f(x):\n    return x.\n\ndef g():\n    pass\n';
   const ctx = buildContext({ text, languageId: 'python', path: 'a.py' }, { line: 1, character: 13 });
-  assert.equal(clean('<completion>value\n\n\ndef g():\n    pass</completion>', ctx), 'value');
+  assert.equal(clean('value\n\n\ndef g():\n    pass', ctx), 'value');
 });
 
 test('credentials: env wins, key file is re-read when it changes', () => {
@@ -157,12 +158,15 @@ test('credentials: env wins, key file is re-read when it changes', () => {
   utimesSync(keyFile, later, later);
   assert.equal(creds.resolve().apiKey, 'sk-ant-second');
 
-  assert.equal(createCredentials({ keyFile, env: { ANTHROPIC_API_KEY: 'sk-ant-env' } }).resolve().source, 'env');
+  const env = { ANTHROPIC_API_KEY: 'sk-ant-env' };
+  assert.equal(createCredentials({ keyFile, apiKeyEnv: 'ANTHROPIC_API_KEY', env }).resolve().source, 'env');
+  // Another provider's variable is not picked up.
+  assert.equal(createCredentials({ keyFile, apiKeyEnv: 'OPENAI_API_KEY', env }).resolve().source, 'file');
 });
 
 test('real provider without a key reports a setup hint instead of calling the API', async (t) => {
-  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'claude', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' },
-    ['--key-file', join(tmpdir(), 'cc-missing-key')]);
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' },
+    ['--key-dir', join(tmpdir(), 'cc-missing-keys')]);
   t.after(() => server.close());
   await server.request('initialize', {}).response;
   server.notify('initialized', {});
@@ -172,7 +176,7 @@ test('real provider without a key reports a setup hint instead of calling the AP
   assert.deepEqual(r.result.items, []);
   const status = server.notifications.filter((n) => n.method === 'didChangeStatus').at(-1);
   assert.equal(status.params.kind, 'Error');
-  assert.match(status.params.message, /Cop key/);
+  assert.match(status.params.message, /Cop key anthropic/);
 });
 
 test('normalizeKey accepts a pasted shell line', () => {
@@ -189,17 +193,19 @@ test('copilot/models lists every model and follows the selected one', async (t) 
   server.notify('initialized', {});
   const ids = async () => (await server.request('copilot/models', {}).response).result;
   let models = await ids();
-  assert.deepEqual(models.map((m) => m.id), ['mock', 'mock-2']);
-  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock']);
+  assert.deepEqual(models.map((m) => m.id), ['mock/fast', 'mock/alt']);
+  assert.equal(models[0].provider, 'mock');
+  // The default model belongs to a provider that is not enabled: fall back to mock's first.
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock/fast']);
 
-  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock-2' } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock/alt' } } });
   models = await ids();
-  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock/alt']);
 
   // A GitHub model id left in g:copilot_settings is ignored.
-  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock-2' }, github: { copilot: { selectedCompletionModel: 'gpt-4o-copilot' } } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock/alt' }, github: { copilot: { selectedCompletionModel: 'gpt-4o-copilot' } } } });
   models = await ids();
-  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
+  assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock/alt']);
 });
 
 test('speedParams picks the fastest settings each model accepts', () => {
@@ -215,4 +221,12 @@ test('speedParams picks the fastest settings each model accepts', () => {
   assert.deepEqual(speedParams(caps(['enabled', 'disabled'], []), 256), { max_tokens: 256, thinking: { type: 'disabled' } });
   // Unknown model: the API default may think, so keep the headroom.
   assert.deepEqual(speedParams(null, 256), { max_tokens: 256 + 4096 });
+});
+
+test('parseModelId splits provider and model', () => {
+  assert.deepEqual(parseModelId('anthropic/claude-haiku-5-5'), { provider: 'anthropic', model: 'claude-haiku-5-5' });
+  assert.deepEqual(parseModelId('ollama/qwen2.5-coder:7b'), { provider: 'ollama', model: 'qwen2.5-coder:7b' });
+  assert.deepEqual(parseModelId('openrouter/meta/llama'), { provider: 'openrouter', model: 'meta/llama' });
+  assert.deepEqual(parseModelId('claude-sonnet-5-5'), { provider: 'anthropic', model: 'claude-sonnet-5-5' });
+  assert.equal(parseModelId('gpt-4o-copilot'), null);
 });

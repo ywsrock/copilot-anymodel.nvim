@@ -51,7 +51,7 @@ Then, once:
 :Cop key
 ```
 
-and paste your API key. It is saved to `stdpath('data')/copilot-anymodel/api_key`
+and paste your Anthropic API key. It is saved to `stdpath('data')/copilot-anymodel/keys/anthropic`
 with owner-only permissions. You do **not** need `:Copilot setup` (that is
 GitHub's sign-in).
 
@@ -82,12 +82,12 @@ request.
 | Command | |
 |---|---|
 | `:Cop` | Menu of the commands below |
-| `:Cop model [id]` | Pick from every model your key can use (listed live from the Models API) |
+| `:Cop model [id]` | Pick from every model of every configured provider, e.g. `anthropic/claude-haiku-5-5` |
 | `:Cop toggle` | Switch between this plugin's server and GitHub Copilot |
 | `:Cop backend anymodel\|copilot` | Choose one of the two explicitly |
-| `:Cop key` | Save your Anthropic API key |
+| `:Cop key [provider]` | Save a provider's API key (`anthropic`) |
 | `:Cop status` | Show backend, model, key source and paths |
-| `:Cop logout` | Delete the saved API key |
+| `:Cop logout [provider]` | Delete a saved API key |
 
 The backend and model choices are remembered across sessions. Each model gets the
 fastest settings it accepts (thinking off where possible, low effort); Haiku 5.5,
@@ -102,18 +102,20 @@ Everything is optional.
 require('copilot_anymodel').setup({
   default_backend = 'anymodel', -- until :Cop backend picks another
   server = {
-    model = 'claude-haiku-5-5', -- any id from :Cop model (which overrides this)
+    model = 'anthropic/claude-haiku-5-5', -- "<provider>/<model>"; :Cop model overrides it
     debounceMs = 100,           -- wait after the last keystroke
     maxLines = 8,               -- longest multi-line suggestion
     maxTokens = 256,
     linesBefore = 200,          -- context sent above the cursor
     linesAfter = 50,            -- and below it
     alternatives = 2,           -- extra suggestions fetched when cycling
+    providers = {},             -- per-provider options (for providers added later)
   },
 })
 ```
 
-`ANTHROPIC_API_KEY` in the environment takes precedence over the saved key.
+A provider's environment variable (`ANTHROPIC_API_KEY`) takes precedence over
+its saved key.
 copilot.vim options such as `g:copilot_filetypes` keep working.
 
 ## Privacy and cost
@@ -156,7 +158,7 @@ CI runs weekly against its latest version.
 | Symptom | Fix |
 |---|---|
 | No suggestions | `:Copilot status`, then `:checkhealth copilot_anymodel` |
-| `No Anthropic API key` | `:Cop key` |
+| `No API key for anthropic` | `:Cop key anthropic` |
 | `Authentication failed (401)` | The key is wrong or revoked; run `:Cop key` again |
 | `credit balance is too low` | Buy API credit in the Anthropic console |
 | Odd suggestions | Start Neovim with `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` to see each prompt and raw reply |

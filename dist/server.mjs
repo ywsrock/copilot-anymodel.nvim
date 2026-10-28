@@ -1295,8 +1295,8 @@ var init_ProxyTracer = __esm({
     init_NoopTracer();
     NOOP_TRACER = new NoopTracer();
     ProxyTracer = class {
-      constructor(provider2, name, version, options) {
-        this._provider = provider2;
+      constructor(provider, name, version, options) {
+        this._provider = provider;
         this.name = name;
         this.version = version;
         this.options = options;
@@ -1560,9 +1560,9 @@ var init_trace = __esm({
       *
       * @returns true if the tracer provider was successfully registered, else false
       */
-      setGlobalTracerProvider(provider2) {
+      setGlobalTracerProvider(provider) {
         const success = registerGlobal(API_NAME4, this._proxyTracerProvider, DiagAPI.instance());
-        if (success) this._proxyTracerProvider.setDelegate(provider2);
+        if (success) this._proxyTracerProvider.setDelegate(provider);
         return success;
       }
       /**
@@ -3069,12 +3069,12 @@ var init_token_cache = __esm({
     init_types();
     init_time();
     TokenCache = class {
-      constructor(provider2, onAdvisoryRefreshError) {
+      constructor(provider, onAdvisoryRefreshError) {
         this.cached = null;
         this.pendingRefresh = null;
         this.nextForce = false;
         this.lastAdvisoryError = 0;
-        this.provider = provider2;
+        this.provider = provider;
         this.onAdvisoryRefreshError = onAdvisoryRefreshError;
       }
       async getToken() {
@@ -4445,12 +4445,12 @@ var init_user_oauth = __esm({
 function resolveCredentialsFromConfig(config2, options) {
   const credentialsPath = config2.authentication.credentials_path ?? null;
   const effectiveBaseURL = (config2.base_url || options.baseURL).replace(/\/+$/, "");
-  const provider2 = buildProvider(config2, credentialsPath, effectiveBaseURL, options);
+  const provider = buildProvider(config2, credentialsPath, effectiveBaseURL, options);
   const extraHeaders = {};
   if (config2.workspace_id && config2.authentication.type === "user_oauth") {
     extraHeaders["anthropic-workspace-id"] = config2.workspace_id;
   }
-  return { provider: provider2, extraHeaders, baseURL: config2.base_url || void 0 };
+  return { provider, extraHeaders, baseURL: config2.base_url || void 0 };
 }
 async function defaultCredentials(options, profile) {
   const loaded = await loadConfigWithSource(profile);
@@ -4470,12 +4470,12 @@ async function defaultCredentials(options, profile) {
 function buildProvider(config2, credentialsPath, baseURL, options) {
   switch (config2.authentication.type) {
     case "oidc_federation": {
-      const auth = config2.authentication;
-      const identityProvider = resolveIdentityTokenProvider(auth);
+      const auth3 = config2.authentication;
+      const identityProvider = resolveIdentityTokenProvider(auth3);
       if (!identityProvider) {
         throw new WorkloadIdentityError("oidc_federation config requires an identity token (set authentication.identity_token, ANTHROPIC_IDENTITY_TOKEN_FILE, or ANTHROPIC_IDENTITY_TOKEN)");
       }
-      if (!auth.federation_rule_id) {
+      if (!auth3.federation_rule_id) {
         throw new WorkloadIdentityError("oidc_federation config requires 'federation_rule_id'. Set it in authentication.federation_rule_id in your profile, or via ANTHROPIC_FEDERATION_RULE_ID (profile takes precedence).");
       }
       if (!config2.organization_id) {
@@ -4483,9 +4483,9 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
       }
       const exchange = oidcFederationProvider({
         identityTokenProvider: identityProvider,
-        federationRuleId: auth.federation_rule_id,
+        federationRuleId: auth3.federation_rule_id,
         organizationId: config2.organization_id,
-        serviceAccountId: auth.service_account_id,
+        serviceAccountId: auth3.service_account_id,
         workspaceId: config2.workspace_id,
         baseURL,
         fetch: options.fetch,
@@ -4515,16 +4515,16 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
     }
   }
 }
-function resolveIdentityTokenProvider(auth) {
-  if (auth.identity_token) {
-    const source = auth.identity_token.source;
+function resolveIdentityTokenProvider(auth3) {
+  if (auth3.identity_token) {
+    const source = auth3.identity_token.source;
     if (source !== "file") {
       throw new WorkloadIdentityError(`identity_token.source "${source}" is not supported by this SDK version (only "file")`);
     }
-    if (!auth.identity_token.path) {
+    if (!auth3.identity_token.path) {
       throw new WorkloadIdentityError(`identity_token.source "file" requires a non-empty path`);
     }
-    return identityTokenFromFile(auth.identity_token.path);
+    return identityTokenFromFile(auth3.identity_token.path);
   }
   const tokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
   if (tokenFile) {
@@ -27366,8 +27366,8 @@ var init_client = __esm({
         _credentialsFetch() {
           return wrapFetchWithMiddleware(this.fetch, this.middleware, void 0, this);
         }
-        _makeTokenCache(provider2) {
-          return new TokenCache(provider2, (err) => {
+        _makeTokenCache(provider) {
+          return new TokenCache(provider, (err) => {
             loggerFor(this).debug("advisory token refresh failed; serving cached token", err);
           });
         }
@@ -28050,6 +28050,7 @@ var init_sdk = __esm({
 
 // server/server.js
 import { appendFileSync } from "node:fs";
+import { join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // server/lib/lsp.js
@@ -28201,7 +28202,10 @@ function buildContext(doc, position, { linesBefore = 200, linesAfter = 50 } = {}
     // Full text around the cursor, used to recognise "user typed into the suggestion".
     before: lines.slice(0, row).join("\n") + (row > 0 ? "\n" : "") + prefixLine,
     after: suffixLine + "\n" + lines.slice(row + 1).join("\n"),
-    nextLines: afterLines
+    nextLines: afterLines,
+    // Same window as the chat prompt, as plain text for fill-in-the-middle models.
+    fimPrefix: [...lines.slice(stableStart, row), prefixLine].join("\n"),
+    fimSuffix: [suffixLine, ...afterLines].join("\n")
   };
 }
 function instructions(ctx, { variant = false } = {}) {
@@ -28213,7 +28217,7 @@ function instructions(ctx, { variant = false } = {}) {
 
 // server/lib/postprocess.js
 function clean(raw, ctx, { maxLines = 8 } = {}) {
-  let text = extractCompletion(raw).replaceAll("\r\n", "\n");
+  let text = raw.replaceAll("\r\n", "\n");
   text = text.replace(/^\s*```[\w+-]*\n/, "").replace(/\n?```\s*$/, "");
   text = text.replaceAll(CURSOR, "");
   const typed = ctx.prefixLine.trimStart();
@@ -28255,9 +28259,9 @@ function toItem(completion, ctx, position) {
 // server/lib/credentials.js
 import { readFileSync, statSync } from "node:fs";
 function normalizeKey(text) {
-  return text.trim().replace(/^export\s+/, "").replace(/^ANTHROPIC_API_KEY\s*=\s*/, "").replace(/^(['"])(.*)\1$/, "$2").trim();
+  return text.trim().replace(/^export\s+/, "").replace(/^[A-Z_][A-Z0-9_]*\s*=\s*/, "").replace(/^(['"])(.*)\1$/, "$2").trim();
 }
-function createCredentials({ keyFile = null, env = process.env } = {}) {
+function createCredentials({ keyFile = null, apiKeyEnv = null, authTokenEnv = null, env = process.env } = {}) {
   let cache = { mtimeMs: -1, key: null };
   function fromFile() {
     if (!keyFile) return null;
@@ -28272,25 +28276,39 @@ function createCredentials({ keyFile = null, env = process.env } = {}) {
     }
   }
   return {
-    // { apiKey } for the SDK, or null when nothing is configured.
+    // { apiKey } or { authToken }, or null when nothing is configured.
     resolve() {
-      if (env.ANTHROPIC_API_KEY) return { apiKey: env.ANTHROPIC_API_KEY, source: "env" };
+      if (apiKeyEnv && env[apiKeyEnv]) return { apiKey: env[apiKeyEnv], source: "env" };
       const key = fromFile();
       if (key) return { apiKey: key, source: "file" };
-      if (env.ANTHROPIC_AUTH_TOKEN) return { authToken: env.ANTHROPIC_AUTH_TOKEN, source: "env" };
+      if (authTokenEnv && env[authTokenEnv]) return { authToken: env[authTokenEnv], source: "env" };
       return null;
     }
   };
 }
 
-// server/providers/claude.js
-var claude_exports = {};
-__export(claude_exports, {
+// server/lib/models.js
+function parseModelId(id) {
+  if (typeof id !== "string" || !id) return null;
+  const slash = id.indexOf("/");
+  if (slash > 0) return { provider: id.slice(0, slash), model: id.slice(slash + 1) };
+  if (id.startsWith("claude-")) return { provider: "anthropic", model: id };
+  return null;
+}
+function modelId(provider, model) {
+  return `${provider}/${model}`;
+}
+
+// server/providers/anthropic.js
+var anthropic_exports = {};
+__export(anthropic_exports, {
+  auth: () => auth,
   createProvider: () => createProvider,
   models: () => models,
   speedParams: () => speedParams
 });
 init_sdk();
+var auth = { apiKeyEnv: "ANTHROPIC_API_KEY", authTokenEnv: "ANTHROPIC_AUTH_TOKEN" };
 var models = [
   { id: "claude-haiku-5-5", modelName: "Claude Haiku 5.5" },
   { id: "claude-sonnet-5-5", modelName: "Claude Sonnet 5.5" }
@@ -28327,11 +28345,11 @@ function createProvider({ credentials }) {
   let clientKey = null;
   let catalog = null;
   function getClient() {
-    const auth = credentials.resolve();
-    if (!auth) return null;
-    const key = auth.apiKey ?? auth.authToken;
+    const auth3 = credentials.resolve();
+    if (!auth3) return null;
+    const key = auth3.apiKey ?? auth3.authToken;
     if (key !== clientKey) {
-      client = new Anthropic({ apiKey: auth.apiKey ?? null, authToken: auth.authToken ?? null, maxRetries: 0, timeout: 1e4 });
+      client = new Anthropic({ apiKey: auth3.apiKey ?? null, authToken: auth3.authToken ?? null, maxRetries: 0, timeout: 1e4 });
       clientKey = key;
     }
     return client;
@@ -28356,16 +28374,13 @@ function createProvider({ credentials }) {
     }
   }
   return {
-    name: "claude",
-    hasCredentials() {
+    name: "anthropic",
+    ready() {
       return credentials.resolve() !== null;
-    },
-    ownsModel(id) {
-      return typeof id === "string" && id.startsWith("claude-");
     },
     listModels,
     // Streams a completion and stops early once `maxLines` lines are produced.
-    // Returns { text, stats } where stats carries latency and token usage.
+    // Returns { text, raw, stats }: text is the completion without the tags.
     async complete(ctx, { model, maxTokens, maxLines, variant, signal }) {
       const api = getClient();
       if (!api) throw new Error("No Anthropic API key configured");
@@ -28409,7 +28424,7 @@ function createProvider({ credentials }) {
         if (!(stoppedEarly && err instanceof Anthropic.APIUserAbortError)) throw err;
       }
       stats.totalMs = Math.round(performance.now() - started);
-      return { text, stats };
+      return { text: extractCompletion(text), raw: text, stats };
     }
   };
 }
@@ -28417,21 +28432,20 @@ function createProvider({ credentials }) {
 // server/providers/mock.js
 var mock_exports = {};
 __export(mock_exports, {
+  auth: () => auth2,
   createProvider: () => createProvider2,
   models: () => models2
 });
+var auth2 = null;
 var models2 = [
-  { id: "mock", modelName: "Mock" },
-  { id: "mock-2", modelName: "Mock 2" }
+  { id: "fast", modelName: "Mock Fast" },
+  { id: "alt", modelName: "Mock Alt" }
 ];
 function createProvider2() {
   return {
     name: "mock",
-    hasCredentials() {
+    ready() {
       return true;
-    },
-    ownsModel(id) {
-      return typeof id === "string" && id.startsWith("mock");
     },
     async listModels() {
       return models2;
@@ -28441,7 +28455,7 @@ function createProvider2() {
       signal?.throwIfAborted();
       const text = (process.env.COPILOT_ANYMODEL_MOCK_TEXT ?? "mock()").replaceAll("\\n", "\n");
       const body = variant ? `${text} // alt` : text;
-      return { text: `<completion>${body}</completion>`, stats: { model, ttftMs: 20, totalMs: 20, usage: null } };
+      return { text: body, raw: body, stats: { model, ttftMs: 20, totalMs: 20, usage: null } };
     }
   };
 }
@@ -28453,13 +28467,35 @@ function argValue(name) {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
-var providers = { claude: claude_exports, mock: mock_exports };
-var providerName = process.env.COPILOT_ANYMODEL_PROVIDER ?? "claude";
-var providerModule = providers[providerName];
-if (!providerModule) throw new Error(`unknown provider: ${providerName}`);
-var provider = providerModule.createProvider({ credentials: createCredentials({ keyFile: argValue("--key-file") }) });
+var registry2 = { anthropic: anthropic_exports, mock: mock_exports };
+var keyDir = argValue("--key-dir");
+var pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(",").filter(Boolean) ?? null;
+for (const name of pinned ?? []) if (!registry2[name]) throw new Error(`unknown provider: ${name}`);
+var instances = /* @__PURE__ */ new Map();
+function getProvider(name) {
+  if (!registry2[name]) return null;
+  if (!instances.has(name)) {
+    const mod = registry2[name];
+    const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join2(keyDir, name) : null, ...mod.auth });
+    instances.set(name, mod.createProvider({ credentials, options: config.providers?.[name] ?? {} }));
+  }
+  return instances.get(name);
+}
+function enabledProviders() {
+  if (pinned) return pinned;
+  const configured = Object.keys(config.providers ?? {}).filter((n) => registry2[n] && n !== "mock");
+  return [.../* @__PURE__ */ new Set(["anthropic", ...configured])];
+}
+function currentModel() {
+  const parsed = parseModelId(config.model);
+  const enabled = enabledProviders();
+  if (parsed && enabled.includes(parsed.provider)) return parsed;
+  const name = enabled[0];
+  return { provider: name, model: registry2[name].models[0].id };
+}
 var defaults2 = {
-  model: providerModule.models[0].id,
+  model: "anthropic/claude-haiku-5-5",
+  providers: {},
   maxTokens: 256,
   maxLines: 8,
   debounceMs: 100,
@@ -28491,7 +28527,8 @@ function applySettings(settings = {}) {
   for (const key of Object.keys(defaults2)) {
     if (own[key] !== void 0 && own[key] !== null) next[key] = own[key];
   }
-  if (selected && provider.ownsModel(selected)) next.model = selected;
+  if (selected && parseModelId(selected)) next.model = selected;
+  if (JSON.stringify(next.providers) !== JSON.stringify(config.providers)) instances.clear();
   config = next;
 }
 function sleep2(ms, signal) {
@@ -28521,24 +28558,32 @@ function continuation(uri, ctx) {
   return rest.trim() ? rest : null;
 }
 async function generate2(uri, ctx, { variant, signal }) {
-  const options = { model: config.model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
-  const { text, stats } = await provider.complete(ctx, options);
+  const { provider: name, model } = currentModel();
+  const options = { model, maxTokens: config.maxTokens, maxLines: ctx.singleLine ? 1 : config.maxLines, variant, signal };
+  let result;
+  try {
+    result = await getProvider(name).complete(ctx, options);
+  } catch (err) {
+    err.provider = name;
+    throw err;
+  }
+  const { text, raw, stats } = result;
   const completion = clean(text, ctx, { maxLines: options.maxLines });
   const u = stats.usage;
   if (process.env.COPILOT_ANYMODEL_DUMP) {
     appendFileSync(process.env.COPILOT_ANYMODEL_DUMP, `===== ${ctx.path}:${ctx.row + 1}
 ${ctx.stable}${ctx.volatile}
 ----- raw
-${text}
+${raw}
 `);
   }
-  log(`${stats.model}${variant ? " (alt)" : ""} at=${ctx.row + 1}:${ctx.prefixLine.length} ttft=${stats.ttftMs}ms total=${stats.totalMs}ms` + (u ? ` in=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0}` : "") + ` chars=${completion.length}`);
+  log(`${modelId(name, stats.model)}${variant ? " (alt)" : ""} at=${ctx.row + 1}:${ctx.prefixLine.length} ttft=${stats.ttftMs}ms total=${stats.totalMs}ms` + (u ? ` in=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0}` : "") + ` chars=${completion.length}`);
   if (!variant && completion) last = { uri, before: ctx.before, after: ctx.after, completion };
   return completion;
 }
 function reportError(err) {
   if (err?.status === 401 || err?.status === 403) {
-    setStatus("Error", `Authentication failed (${err.status}): run :Cop key to set a valid key`);
+    setStatus("Error", `Authentication failed (${err.status}): run :Cop key ${err.provider ?? ""} to set a valid key`);
   } else {
     setStatus("Warning", String(err?.message ?? err));
   }
@@ -28548,8 +28593,9 @@ async function complete(params, signal, { invoked }) {
   const uri = params.textDocument?.uri;
   const doc = docs.get(uri);
   if (!doc) return { items: [] };
-  if (!provider.hasCredentials()) {
-    setStatus("Error", MISSING_KEY);
+  const { provider: name } = currentModel();
+  if (!getProvider(name).ready()) {
+    setStatus("Error", missingKey(name));
     return { items: [] };
   }
   const ctx = buildContext(doc, params.position, config);
@@ -28594,16 +28640,21 @@ conn.onRequest("initialize", (params) => {
     serverInfo: { name: "copilot-anymodel", version: VERSION3, nodeVersion: process.versions.node }
   };
 });
-var MISSING_KEY = "No Anthropic API key. Run :Cop key (or set ANTHROPIC_API_KEY).";
+function missingKey(name) {
+  const env = registry2[name].auth?.apiKeyEnv;
+  return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ""}.`;
+}
 conn.onNotification("initialized", () => {
-  if (provider.hasCredentials()) {
+  const { provider: name, model } = currentModel();
+  const provider = getProvider(name);
+  if (provider.ready()) {
     setStatus("Normal");
     provider.listModels().catch(() => {
     });
   } else {
-    setStatus("Error", MISSING_KEY);
+    setStatus("Error", missingKey(name));
   }
-  log(`started: provider=${provider.name} model=${config.model}`, 3);
+  log(`started: model=${modelId(name, model)} providers=${enabledProviders().join(",")}`, 3);
 });
 conn.onRequest("shutdown", () => null);
 conn.onNotification("exit", () => process.exit(0));
@@ -28633,23 +28684,26 @@ conn.onNotification("textDocument/didClose", ({ textDocument }) => {
 });
 conn.onRequest("textDocument/inlineCompletion", (params, signal) => complete(params, signal, { invoked: params.context?.triggerKind === 1 }));
 conn.onRequest("textDocument/copilotPanelCompletion", (params, signal) => complete(params, signal, { invoked: true }));
-var user = `${provider.name}`;
+var user = "anymodel";
 conn.onRequest("signIn", () => ({ status: "AlreadySignedIn", user }));
 conn.onRequest("signInConfirm", () => ({ status: "OK", user }));
 conn.onRequest("signOut", () => ({ status: "NotSignedIn" }));
 conn.onRequest("checkStatus", () => ({ status: "OK", user }));
 conn.onRequest("getVersion", () => ({ version: VERSION3, buildType: "dev", runtimeVersion: `node/${process.versions.node}` }));
 conn.onRequest("copilot/models", async () => {
-  const list = await provider.listModels();
-  return list.map((m) => ({
-    id: m.id,
+  const current = currentModel();
+  const names = enabledProviders().filter((n) => getProvider(n).ready());
+  const lists = await Promise.all(names.map((n) => getProvider(n).listModels().catch(() => [])));
+  return names.flatMap((name, i) => lists[i].map((m) => ({
+    id: modelId(name, m.id),
     modelName: m.modelName,
     modelFamily: m.id,
+    provider: name,
     preview: false,
     deprecated: Boolean(m.deprecatedAt),
-    current: m.id === config.model,
+    current: name === current.provider && m.id === current.model,
     scopes: ["completion"]
-  }));
+  })));
 });
 conn.onRequest("workspace/executeCommand", () => ({}));
 conn.onRequest("telemetry/exception", () => ({}));

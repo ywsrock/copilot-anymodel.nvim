@@ -20,7 +20,7 @@ copilot.vim or this plugin on an event.
 Run once and paste your Anthropic API key (https://console.anthropic.com): >
     :Cop key
 <
-The key is saved to `stdpath('data')/copilot-anymodel/api_key` (mode 600).
+The key is saved to `stdpath('data')/copilot-anymodel/keys/anthropic` (mode 600).
 $ANTHROPIC_API_KEY, when set, takes precedence. `:Copilot setup` is not needed.
 
 Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
@@ -30,8 +30,9 @@ Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
 
                                                        *:Cop*
 :Cop                          Menu of the commands below.
-:Cop model [{id}]             Without {id}, list every model the API key can
-                              use (from the Models API) and pick one. Takes
+:Cop model [{id}]             Without {id}, list every model of every
+                              configured provider and pick one. Ids are
+                              `<provider>/<model>`, e.g. anthropic/claude-haiku-5-5. Takes
                               effect without a restart; remembered across
                               sessions.
 :Cop toggle                   Switch to the other backend.
@@ -39,9 +40,9 @@ Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
                               needs a Copilot subscription and |:Copilot| setup
                               once). Restarts the server; remembered across
                               sessions.
-:Cop key                      Save the Anthropic API key.
+:Cop key [{provider}]         Save a provider's API key (anthropic).
 :Cop status                   Show backend, model, key source and paths.
-:Cop logout                   Delete the saved key.
+:Cop logout [{provider}]      Delete a saved key.
 
 Useful copilot.vim commands with the anymodel backend:
   :Copilot status   `Ready`, or the problem (missing key, no credit, ...)
@@ -56,13 +57,14 @@ Optional: >lua
     require('copilot_anymodel').setup({
       default_backend = 'anymodel',
       server = {
-        model = 'claude-haiku-5-5',
+        model = 'anthropic/claude-haiku-5-5',
         debounceMs = 100,
         maxLines = 8,
         maxTokens = 256,
         linesBefore = 200,
         linesAfter = 50,
         alternatives = 2,
+        providers = {},
       },
     })
 <
@@ -80,7 +82,7 @@ Each suggestion sends the text around the cursor (default 200 lines above,
 5. TROUBLESHOOTING                          *copilot-anymodel-troubleshooting*
 
 No suggestions          `:Copilot status`, then `:checkhealth copilot_anymodel`
-No Anthropic API key    `:Cop key`
+No API key for ...      `:Cop key {provider}`
 Authentication failed   The key is wrong or revoked; run :Cop key again.
 credit balance too low  Buy API credit in the Anthropic console.
 Odd suggestions         Start with `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim`

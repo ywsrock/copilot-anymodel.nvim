@@ -27,11 +27,12 @@ check('default backend is anymodel', vim.g.copilot_anymodel_backend == 'anymodel
 
 -- 2. :Cop key stores the key readable only by the owner.
 vim.api.nvim_feedkeys('sk-ant-test-key\r', 'n', false)
-vim.cmd('Cop key')
-local stat = (vim.uv or vim.loop).fs_stat(cc.paths.key_file)
-check('key saved', vim.fn.readfile(cc.paths.key_file)[1] == 'sk-ant-test-key')
+vim.cmd('Cop key anthropic')
+local key_file = cc.key_file('anthropic')
+local stat = (vim.uv or vim.loop).fs_stat(key_file)
+check('key saved', vim.fn.readfile(key_file)[1] == 'sk-ant-test-key')
 check('key file mode 600', stat and bit.band(stat.mode, tonumber('777', 8)) == tonumber('600', 8), stat and stat.mode)
-check('key source is file', cc.key_source() == 'file', cc.key_source())
+check('key source is file', cc.key_source('anthropic') == 'file', cc.key_source('anthropic'))
 check('pasted shell line is cleaned', cc.normalize_key("export ANTHROPIC_API_KEY='sk-ant-x'") == 'sk-ant-x', cc.normalize_key("export ANTHROPIC_API_KEY='sk-ant-x'"))
 
 -- 3. A completion request goes through copilot.vim.
@@ -55,13 +56,13 @@ check('server restarted', status():find('Ready') ~= nil, status())
 -- 5. Model listing and selection.
 local models = cc.list_models() or {}
 check('model list from server', #models == 2 and models[1].current == true, models)
-vim.g.copilot_settings = { selectedCompletionModel = 'claude-old' }
-vim.cmd('Cop model mock-2')
-check('model is saved', cc.saved_model() == 'mock-2', cc.saved_model())
+vim.g.copilot_settings = { selectedCompletionModel = 'anthropic/claude-old' }
+vim.cmd('Cop model mock/alt')
+check('model is saved', cc.saved_model() == 'mock/alt', cc.saved_model())
 check('stale :Copilot model choice dropped', vim.g.copilot_settings.selectedCompletionModel == nil, vim.g.copilot_settings)
 vim.wait(100)
 local current = vim.tbl_filter(function(m) return m.current end, cc.list_models() or {})
-check('server uses the selected model', current[1] and current[1].id == 'mock-2', current)
+check('server uses the selected model', current[1] and current[1].id == 'mock/alt', current)
 
 -- 6. Ghost text and <Tab> accept in insert mode.
 vim.cmd('enew')

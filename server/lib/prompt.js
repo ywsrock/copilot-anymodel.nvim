@@ -73,6 +73,9 @@ export function buildContext(doc, position, { linesBefore = 200, linesAfter = 50
     before: lines.slice(0, row).join('\n') + (row > 0 ? '\n' : '') + prefixLine,
     after: suffixLine + '\n' + lines.slice(row + 1).join('\n'),
     nextLines: afterLines,
+    // Same window as the chat prompt, as plain text for fill-in-the-middle models.
+    fimPrefix: [...lines.slice(stableStart, row), prefixLine].join('\n'),
+    fimSuffix: [suffixLine, ...afterLines].join('\n'),
   };
 }
 

@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CLOSE_TAG, SYSTEM_PROMPT, extractCompletion, instructions } from '../lib/prompt.js';
 
+// Claude through the Anthropic Messages API (chat prompt, answer in <completion> tags).
+
+export const auth = { apiKeyEnv: 'ANTHROPIC_API_KEY', authTokenEnv: 'ANTHROPIC_AUTH_TOKEN' };
+
 // Used until the Models API answers, and if it cannot be reached.
 export const models = [
   { id: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5' },
@@ -84,20 +88,16 @@ export function createProvider({ credentials }) {
   }
 
   return {
-    name: 'claude',
+    name: 'anthropic',
 
-    hasCredentials() {
+    ready() {
       return credentials.resolve() !== null;
-    },
-
-    ownsModel(id) {
-      return typeof id === 'string' && id.startsWith('claude-');
     },
 
     listModels,
 
     // Streams a completion and stops early once `maxLines` lines are produced.
-    // Returns { text, stats } where stats carries latency and token usage.
+    // Returns { text, raw, stats }: text is the completion without the tags.
     async complete(ctx, { model, maxTokens, maxLines, variant, signal }) {
       const api = getClient();
       if (!api) throw new Error('No Anthropic API key configured');
@@ -144,7 +144,7 @@ export function createProvider({ credentials }) {
         if (!(stoppedEarly && err instanceof Anthropic.APIUserAbortError)) throw err;
       }
       stats.totalMs = Math.round(performance.now() - started);
-      return { text, stats };
+      return { text: extractCompletion(text), raw: text, stats };
     },
   };
 }

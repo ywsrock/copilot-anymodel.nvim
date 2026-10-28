@@ -1,9 +1,9 @@
 // Cleans raw model output into the exact text to insert at the cursor.
 
-import { CURSOR, extractCompletion, splitLines } from './prompt.js';
+import { CURSOR, splitLines } from './prompt.js';
 
 export function clean(raw, ctx, { maxLines = 8 } = {}) {
-  let text = extractCompletion(raw).replaceAll('\r\n', '\n');
+  let text = raw.replaceAll('\r\n', '\n');
 
   // Strip markdown fences the model may add despite instructions.
   text = text.replace(/^\s*```[\w+-]*\n/, '').replace(/\n?```\s*$/, '');
