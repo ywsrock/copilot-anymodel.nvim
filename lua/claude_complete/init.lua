@@ -104,10 +104,20 @@ function M.toggle()
   M.set_backend(vim.g.claude_complete_backend == 'claude' and 'copilot' or 'claude')
 end
 
+-- Accepts a pasted shell line such as `export ANTHROPIC_API_KEY="sk-ant-..."`
+-- (same rules as normalizeKey in server/lib/credentials.js).
+function M.normalize_key(text)
+  local key = vim.trim(text)
+  key = key:gsub('^export%s+', '')
+  key = key:gsub('^ANTHROPIC_API_KEY%s*=%s*', '')
+  key = key:gsub('^(["\'])(.*)%1$', '%2')
+  return vim.trim(key)
+end
+
 -- Saves the key with owner-only permissions; the running server picks it up
 -- on the next request, no restart needed.
 function M.setup_key()
-  local key = vim.trim(vim.fn.inputsecret('Anthropic API key (https://console.anthropic.com): '))
+  local key = M.normalize_key(vim.fn.inputsecret('Anthropic API key (https://console.anthropic.com): '))
   vim.cmd('redraw')
   if key == '' then
     notify('cancelled')

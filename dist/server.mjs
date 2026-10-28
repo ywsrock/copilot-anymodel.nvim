@@ -28254,6 +28254,9 @@ function toItem(completion, ctx, position) {
 
 // server/lib/credentials.js
 import { readFileSync, statSync } from "node:fs";
+function normalizeKey(text) {
+  return text.trim().replace(/^export\s+/, "").replace(/^ANTHROPIC_API_KEY\s*=\s*/, "").replace(/^(['"])(.*)\1$/, "$2").trim();
+}
 function createCredentials({ keyFile = null, env = process.env } = {}) {
   let cache = { mtimeMs: -1, key: null };
   function fromFile() {
@@ -28261,7 +28264,7 @@ function createCredentials({ keyFile = null, env = process.env } = {}) {
     try {
       const { mtimeMs } = statSync(keyFile);
       if (mtimeMs !== cache.mtimeMs) {
-        cache = { mtimeMs, key: readFileSync(keyFile, "utf8").trim() || null };
+        cache = { mtimeMs, key: normalizeKey(readFileSync(keyFile, "utf8")) || null };
       }
       return cache.key;
     } catch {

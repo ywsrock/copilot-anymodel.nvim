@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildContext } from '../server/lib/prompt.js';
 import { clean, toItem } from '../server/lib/postprocess.js';
-import { createCredentials } from '../server/lib/credentials.js';
+import { createCredentials, normalizeKey } from '../server/lib/credentials.js';
 
 // Tests run the bundle users actually get; `npm run build` first.
 const serverPath = fileURLToPath(new URL('../dist/server.mjs', import.meta.url));
@@ -172,4 +172,11 @@ test('real provider without a key reports a setup hint instead of calling the AP
   const status = server.notifications.filter((n) => n.method === 'didChangeStatus').at(-1);
   assert.equal(status.params.kind, 'Error');
   assert.match(status.params.message, /ClaudeComplete setup/);
+});
+
+test('normalizeKey accepts a pasted shell line', () => {
+  assert.equal(normalizeKey('sk-ant-abc\n'), 'sk-ant-abc');
+  assert.equal(normalizeKey('export ANTHROPIC_API_KEY=sk-ant-abc'), 'sk-ant-abc');
+  assert.equal(normalizeKey('ANTHROPIC_API_KEY="sk-ant-abc"'), 'sk-ant-abc');
+  assert.equal(normalizeKey("  export ANTHROPIC_API_KEY = 'sk-ant-abc'  "), 'sk-ant-abc');
 });

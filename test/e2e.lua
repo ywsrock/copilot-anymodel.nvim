@@ -32,6 +32,7 @@ local stat = (vim.uv or vim.loop).fs_stat(cc.paths.key_file)
 check('key saved', vim.fn.readfile(cc.paths.key_file)[1] == 'sk-ant-test-key')
 check('key file mode 600', stat and bit.band(stat.mode, tonumber('777', 8)) == tonumber('600', 8), stat and stat.mode)
 check('key source is file', cc.key_source() == 'file', cc.key_source())
+check('pasted shell line is cleaned', cc.normalize_key("export ANTHROPIC_API_KEY='sk-ant-x'") == 'sk-ant-x', cc.normalize_key("export ANTHROPIC_API_KEY='sk-ant-x'"))
 
 -- 3. A completion request goes through copilot.vim.
 vim.cmd('enew')
