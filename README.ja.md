@@ -3,6 +3,8 @@
 [copilot.vim](https://github.com/github/copilot.vim) の操作感のまま、裏のモデルを選べる Neovim プラグイン。
 Claude、OpenAI（Codex を含む）、OpenRouter、Ollama 経由のローカルモデル、OpenAI 互換の任意のサーバーに対応。
 
+![Claude Haiku 5.5 で補完し、:Cop model で Claude Sonnet 5.5 に切り替える様子](docs/demo.gif)
+
 ゴーストテキスト、`<Tab>` での受け入れ、候補の切り替え、パネルは copilot.vim がそのまま担当し、
 このプラグインは裏の language server を、選んだモデルを使うものに差し替える。
 

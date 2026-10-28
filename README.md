@@ -4,6 +4,8 @@ Keep the [copilot.vim](https://github.com/github/copilot.vim) interface, pick
 the model behind it: Claude, OpenAI (including Codex), OpenRouter, local models
 through Ollama, or any OpenAI-compatible server.
 
+![Suggestions with Claude Haiku 5.5, then switching to Claude Sonnet 5.5 with :Cop model](docs/demo.gif)
+
 copilot.vim keeps doing what it does well (ghost text, `<Tab>` to accept,
 cycling, the panel). This plugin swaps the language server behind it for one
 that asks the model you choose.

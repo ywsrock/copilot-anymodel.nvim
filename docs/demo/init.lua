@@ -11,3 +11,6 @@ vim.o.showmode = true
 vim.o.swapfile = false
 vim.g.copilot_filetypes = { ['*'] = true }
 vim.cmd.colorscheme('habamax')
+-- Suggestions carry their own indentation; no autoindent keeps the typed keys simple.
+vim.cmd('filetype indent off')
+vim.o.autoindent = false

@@ -13,17 +13,17 @@ out_path = sys.argv[1] if len(sys.argv) > 1 else 'demo.cast'
 work = tempfile.mkdtemp()
 shutil.copy(os.path.join(HERE, 'shop.py'), os.path.join(work, 'shop.py'))
 
-ESC, TAB, CR, CTRL_U = '\x1b', '\t', '\r', '\x15'
+ESC, TAB, CR = '\x1b', '\t', '\r'
 # (keys, seconds to wait afterwards); keys are typed one by one.
 SCRIPT = [
     ('', 2.5),                                   # startup
     ('Go', 3.0),                                 # new line in the function body -> suggestion
     (TAB, 1.2),                                  # accept
-    (CR + CR + CTRL_U + 'def most_expensive(items: list[Item]) -> Item:' + CR, 3.0),
+    (CR + CR + CR + 'def most_expensive(items: list[Item]) -> Item:' + CR, 3.0),
     (TAB, 1.2),
     (ESC + ':Cop model' + CR, 2.5),              # every model of every provider
     ('2' + CR, 1.5),                             # Claude Sonnet 5.5
-    ('Go' + CR + CTRL_U + 'def cheapest(', 3.5),
+    ('Go' + CR + CR + 'def cheapest(', 3.5),
     (TAB, 1.2),
     (ESC, 1.5),
 ]
@@ -57,8 +57,8 @@ for keys, wait in SCRIPT:
         pump(0.06)
     pump(wait)
 
+# Quit after the recording ends, so it does not show.
 os.write(fd, (ESC + ':qa!' + CR).encode())
-pump(0.5)
 with open(out_path, 'w') as f:
     f.write(json.dumps({'version': 2, 'width': COLS, 'height': ROWS, 'env': {'TERM': 'xterm-256color'}}) + '\n')
     for e in events:

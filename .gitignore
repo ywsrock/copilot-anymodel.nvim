@@ -1,3 +1,5 @@
 node_modules/
 test/.deps/
 doc/tags
+docs/demo/demo.cast
+docs/demo/agg-*
