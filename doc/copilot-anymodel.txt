@@ -1,0 +1,89 @@
+*copilot-anymodel.txt*  Any model as the completion backend of copilot.vim
+
+Not affiliated with GitHub or Anthropic.
+
+==============================================================================
+CONTENTS                                              *copilot-anymodel*
+
+  1. Setup ................................ |copilot-anymodel-setup|
+  2. Commands ............................. |copilot-anymodel-commands|
+  3. Configuration ........................ |copilot-anymodel-config|
+  4. Privacy .............................. |copilot-anymodel-privacy|
+  5. Troubleshooting ...................... |copilot-anymodel-troubleshooting|
+
+==============================================================================
+1. SETUP                                              *copilot-anymodel-setup*
+
+Requires Neovim 0.10+, Node.js 20+ and github/copilot.vim. Do not lazy-load
+copilot.vim or this plugin on an event.
+
+Run once and paste your Anthropic API key (https://console.anthropic.com): >
+    :Cop key
+<
+The key is saved to `stdpath('data')/copilot-anymodel/api_key` (mode 600).
+$ANTHROPIC_API_KEY, when set, takes precedence. `:Copilot setup` is not needed.
+
+Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
+
+==============================================================================
+2. COMMANDS                                        *copilot-anymodel-commands*
+
+                                                       *:Cop*
+:Cop                          Menu of the commands below.
+:Cop model [{id}]             Without {id}, list every model the API key can
+                              use (from the Models API) and pick one. Takes
+                              effect without a restart; remembered across
+                              sessions.
+:Cop toggle                   Switch to the other backend.
+:Cop backend {name}           Use `anymodel` or `copilot` (GitHub's own server,
+                              needs a Copilot subscription and |:Copilot| setup
+                              once). Restarts the server; remembered across
+                              sessions.
+:Cop key                      Save the Anthropic API key.
+:Cop status                   Show backend, model, key source and paths.
+:Cop logout                   Delete the saved key.
+
+Useful copilot.vim commands with the anymodel backend:
+  :Copilot status   `Ready`, or the problem (missing key, no credit, ...)
+  :Copilot log      latency per request and errors
+
+Health check: `:checkhealth copilot_anymodel`
+
+==============================================================================
+3. CONFIGURATION                                     *copilot-anymodel-config*
+
+Optional: >lua
+    require('copilot_anymodel').setup({
+      default_backend = 'anymodel',
+      server = {
+        model = 'claude-haiku-5-5',
+        debounceMs = 100,
+        maxLines = 8,
+        maxTokens = 256,
+        linesBefore = 200,
+        linesAfter = 50,
+        alternatives = 2,
+      },
+    })
+<
+`g:copilot_node_command` selects the Node.js binary for the server too.
+
+==============================================================================
+4. PRIVACY                                          *copilot-anymodel-privacy*
+
+Each suggestion sends the text around the cursor (default 200 lines above,
+50 below) to the Anthropic API. Disable it where needed: >vim
+    let g:copilot_filetypes = {'*': v:true, 'markdown': v:false}
+    autocmd BufReadPre *.env,*.pem,*.key let b:copilot_enabled = v:false
+<
+==============================================================================
+5. TROUBLESHOOTING                          *copilot-anymodel-troubleshooting*
+
+No suggestions          `:Copilot status`, then `:checkhealth copilot_anymodel`
+No Anthropic API key    `:Cop key`
+Authentication failed   The key is wrong or revoked; run :Cop key again.
+credit balance too low  Buy API credit in the Anthropic console.
+Odd suggestions         Start with `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim`
+                        to log every prompt and raw reply.
+
+ vim:tw=78:ts=8:ft=help:norl:

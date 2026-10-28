@@ -1,11 +1,12 @@
-# claude-complete.nvim
+# copilot-anymodel.nvim
 
-Inline code completion for Neovim powered by Claude, using the familiar
-[copilot.vim](https://github.com/github/copilot.vim) interface.
+Keep the [copilot.vim](https://github.com/github/copilot.vim) interface, pick
+the model behind it. Claude today; OpenAI and Ollama are planned.
 
 copilot.vim keeps doing what it does well (ghost text, `<Tab>` to accept,
 cycling, the panel). This plugin swaps the language server behind it for one
-that asks Claude, and lets you switch back to GitHub's server with one command.
+that asks the model you choose, and `:Cop toggle` switches back to GitHub's
+server.
 
 > Not affiliated with GitHub or Anthropic. "GitHub Copilot" is a trademark of
 > GitHub, Inc. You use your own Anthropic API key and pay Anthropic directly.
@@ -28,7 +29,7 @@ No `npm install`: the server ships as a single bundled file in `dist/`.
 
 ```lua
 {
-  'ywsrock/claude-complete.nvim',
+  'ywsrock/copilot-anymodel.nvim',
   dependencies = { 'github/copilot.vim' },
   opts = {},
 }
@@ -38,7 +39,7 @@ No `npm install`: the server ships as a single bundled file in `dist/`.
 
 ```vim
 Plug 'github/copilot.vim'
-Plug 'ywsrock/claude-complete.nvim'
+Plug 'ywsrock/copilot-anymodel.nvim'
 ```
 
 Do not lazy-load either plugin on an event: the server command has to be set
@@ -47,14 +48,14 @@ before copilot.vim starts.
 Then, once:
 
 ```
-:ClaudeComplete setup
+:Cop key
 ```
 
-and paste your API key. It is saved to `stdpath('data')/claude-complete/api_key`
+and paste your API key. It is saved to `stdpath('data')/copilot-anymodel/api_key`
 with owner-only permissions. You do **not** need `:Copilot setup` (that is
 GitHub's sign-in).
 
-Check everything with `:checkhealth claude_complete`.
+Check everything with `:checkhealth copilot_anymodel`.
 
 ## Usage
 
@@ -80,14 +81,13 @@ request.
 
 | Command | |
 |---|---|
-| `:ClaudeComplete setup` | Save your Anthropic API key |
-| `:ClaudeComplete backend claude\|copilot` | Use Claude, or GitHub's own Copilot server |
-| `:ClaudeComplete toggle` | Switch to the other backend |
-| `:ClaudeComplete model [id]` | Pick from every model your key can use (listed live from the Models API) |
-| `:ClaudeComplete info` | Show backend, key source and paths |
-| `:ClaudeComplete logout` | Delete the saved API key |
-| `:Copilot status` | `Ready`, or what is wrong (missing key, no credit, …) |
-| `:Copilot log` | Per-request latency (`ttft`, `total`) and errors |
+| `:Cop` | Menu of the commands below |
+| `:Cop model [id]` | Pick from every model your key can use (listed live from the Models API) |
+| `:Cop toggle` | Switch between this plugin's server and GitHub Copilot |
+| `:Cop backend anymodel\|copilot` | Choose one of the two explicitly |
+| `:Cop key` | Save your Anthropic API key |
+| `:Cop status` | Show backend, model, key source and paths |
+| `:Cop logout` | Delete the saved API key |
 
 The backend and model choices are remembered across sessions. Each model gets the
 fastest settings it accepts (thinking off where possible, low effort); Haiku 5.5,
@@ -99,10 +99,10 @@ GitHub Copilot subscription and `:Copilot setup` once.
 Everything is optional.
 
 ```lua
-require('claude_complete').setup({
-  default_backend = 'claude', -- until :ClaudeComplete backend picks another
+require('copilot_anymodel').setup({
+  default_backend = 'anymodel', -- until :Cop backend picks another
   server = {
-    model = 'claude-haiku-5-5', -- any id from :ClaudeComplete model (which overrides this)
+    model = 'claude-haiku-5-5', -- any id from :Cop model (which overrides this)
     debounceMs = 100,           -- wait after the last keystroke
     maxLines = 8,               -- longest multi-line suggestion
     maxTokens = 256,
@@ -155,11 +155,11 @@ CI runs weekly against its latest version.
 
 | Symptom | Fix |
 |---|---|
-| No suggestions | `:Copilot status`, then `:checkhealth claude_complete` |
-| `No Anthropic API key` | `:ClaudeComplete setup` |
-| `Authentication failed (401)` | The key is wrong or revoked; run `:ClaudeComplete setup` again |
+| No suggestions | `:Copilot status`, then `:checkhealth copilot_anymodel` |
+| `No Anthropic API key` | `:Cop key` |
+| `Authentication failed (401)` | The key is wrong or revoked; run `:Cop key` again |
 | `credit balance is too low` | Buy API credit in the Anthropic console |
-| Odd suggestions | Start Neovim with `CLAUDE_COMPLETE_DUMP=/tmp/dump.txt nvim` to see each prompt and raw reply |
+| Odd suggestions | Start Neovim with `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` to see each prompt and raw reply |
 
 ## Development
 

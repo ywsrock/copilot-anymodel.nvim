@@ -1,10 +1,11 @@
-# claude-complete.nvim
+# copilot-anymodel.nvim
 
-[copilot.vim](https://github.com/github/copilot.vim) の操作感のまま、補完を Claude で行う Neovim プラグイン。
+[copilot.vim](https://github.com/github/copilot.vim) の操作感のまま、裏のモデルを選べる Neovim プラグイン。
+現在は Claude に対応。OpenAI と Ollama にも対応予定。
 
 ゴーストテキスト、`<Tab>` での受け入れ、候補の切り替え、パネルは copilot.vim がそのまま担当し、
-このプラグインは裏の language server を Claude を使うものに差し替える。
-GitHub 純正のサーバーへもコマンド 1 つで戻せる。
+このプラグインは裏の language server を、選んだモデルを使うものに差し替える。
+`:Cop toggle` で GitHub 純正のサーバーに戻せる。
 
 > GitHub・Anthropic とは無関係の非公式プラグイン。"GitHub Copilot" は GitHub, Inc. の商標。
 > 利用者自身の Anthropic API キーで動き、料金は Anthropic に直接支払う。
@@ -27,7 +28,7 @@ GitHub 純正のサーバーへもコマンド 1 つで戻せる。
 
 ```lua
 {
-  'ywsrock/claude-complete.nvim',
+  'ywsrock/copilot-anymodel.nvim',
   dependencies = { 'github/copilot.vim' },
   opts = {},
 }
@@ -37,7 +38,7 @@ GitHub 純正のサーバーへもコマンド 1 つで戻せる。
 
 ```vim
 Plug 'github/copilot.vim'
-Plug 'ywsrock/claude-complete.nvim'
+Plug 'ywsrock/copilot-anymodel.nvim'
 ```
 
 どちらのプラグインもイベントで遅延読み込みしないこと（copilot.vim の起動前にサーバーの設定が必要なため）。
@@ -45,14 +46,14 @@ Plug 'ywsrock/claude-complete.nvim'
 インストール後に 1 回だけ:
 
 ```
-:ClaudeComplete setup
+:Cop key
 ```
 
-を実行して API キーを貼り付ける。キーは `stdpath('data')/claude-complete/api_key`
-（macOS / Linux では `~/.local/share/nvim/claude-complete/api_key`）に本人だけが読める権限で保存される。
+を実行して API キーを貼り付ける。キーは `stdpath('data')/copilot-anymodel/api_key`
+（macOS / Linux では `~/.local/share/nvim/copilot-anymodel/api_key`）に本人だけが読める権限で保存される。
 `:Copilot setup`（GitHub へのログイン）は不要。
 
-`:checkhealth claude_complete` で Node、copilot.vim、API キーをまとめて確認できる。
+`:checkhealth copilot_anymodel` で Node、copilot.vim、API キーをまとめて確認できる。
 
 ## 使い方
 
@@ -76,14 +77,13 @@ Plug 'ywsrock/claude-complete.nvim'
 
 | コマンド | 内容 |
 |---|---|
-| `:ClaudeComplete setup` | API キーを保存 |
-| `:ClaudeComplete backend claude\|copilot` | Claude / GitHub 純正サーバーを選ぶ |
-| `:ClaudeComplete toggle` | もう一方に切り替え |
-| `:ClaudeComplete model [id]` | キーで使える全モデル（Models API から取得）から選ぶ |
-| `:ClaudeComplete info` | バックエンド、キーの読み込み元、パスを表示 |
-| `:ClaudeComplete logout` | 保存した API キーを削除 |
-| `:Copilot status` | `Ready`、または問題（キー未設定、残高不足など） |
-| `:Copilot log` | リクエストごとのレイテンシ（`ttft`, `total`）とエラー |
+| `:Cop` | 下のコマンドをメニューから選ぶ |
+| `:Cop model [id]` | キーで使える全モデル（Models API から取得）から選ぶ |
+| `:Cop toggle` | 同梱サーバー ⇔ GitHub Copilot を切り替え |
+| `:Cop backend anymodel\|copilot` | 同梱サーバー / GitHub 純正サーバーを選ぶ |
+| `:Cop key` | API キーを保存 |
+| `:Cop status` | バックエンド、モデル、キーの読み込み元、パスを表示 |
+| `:Cop logout` | 保存した API キーを削除 |
 
 選んだバックエンドとモデルは次回の起動時も使われる。各モデルには、そのモデルが受け付ける
 最速の設定（可能なら thinking 無効、effort low）が自動で使われる。実測では既定の Haiku 5.5 が最も速い。
@@ -95,10 +95,10 @@ Plug 'ywsrock/claude-complete.nvim'
 すべて任意。
 
 ```lua
-require('claude_complete').setup({
-  default_backend = 'claude', -- :ClaudeComplete backend で選ぶまでの既定
+require('copilot_anymodel').setup({
+  default_backend = 'anymodel', -- :Cop backend で選ぶまでの既定
   server = {
-    model = 'claude-haiku-5-5', -- :ClaudeComplete model に出る任意の id（そちらの選択が優先）
+    model = 'claude-haiku-5-5', -- :Cop model に出る任意の id（そちらの選択が優先）
     debounceMs = 100,           -- 最後のキー入力から待つ時間
     maxLines = 8,               -- 複数行の候補の最大行数
     maxTokens = 256,
@@ -149,11 +149,11 @@ CI で毎週、最新の copilot.vim との組み合わせをテストしてい�
 
 | 症状 | 対処 |
 |---|---|
-| 候補が出ない | `:Copilot status`、次に `:checkhealth claude_complete` |
-| `No Anthropic API key` | `:ClaudeComplete setup` |
-| `Authentication failed (401)` | キーが誤り・無効。`:ClaudeComplete setup` をやり直す |
+| 候補が出ない | `:Copilot status`、次に `:checkhealth copilot_anymodel` |
+| `No Anthropic API key` | `:Cop key` |
+| `Authentication failed (401)` | キーが誤り・無効。`:Cop key` をやり直す |
 | `credit balance is too low` | Anthropic のコンソールでクレジットを購入 |
-| おかしな候補が出る | `CLAUDE_COMPLETE_DUMP=/tmp/dump.txt nvim` で起動し、送ったプロンプトと生の応答を確認 |
+| おかしな候補が出る | `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` で起動し、送ったプロンプトと生の応答を確認 |
 
 ## 開発
 

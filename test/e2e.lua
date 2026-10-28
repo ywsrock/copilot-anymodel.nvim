@@ -1,6 +1,6 @@
 -- Driven by test/e2e.sh. Exits 0 on success, 1 on the first failure.
 
-local cc = require('claude_complete')
+local cc = require('copilot_anymodel')
 local failures = 0
 
 local function check(name, ok, detail)
@@ -23,11 +23,11 @@ end
 -- 1. The plugin points copilot.vim at the bundled server.
 local cmd = vim.g.copilot_command
 check('copilot_command uses the bundle', type(cmd) == 'table' and cmd[2] == cc.paths.server, cmd)
-check('default backend is claude', vim.g.claude_complete_backend == 'claude', vim.g.claude_complete_backend)
+check('default backend is anymodel', vim.g.copilot_anymodel_backend == 'anymodel', vim.g.copilot_anymodel_backend)
 
--- 2. :ClaudeComplete setup stores the key readable only by the owner.
+-- 2. :Cop key stores the key readable only by the owner.
 vim.api.nvim_feedkeys('sk-ant-test-key\r', 'n', false)
-vim.cmd('ClaudeComplete setup')
+vim.cmd('Cop key')
 local stat = (vim.uv or vim.loop).fs_stat(cc.paths.key_file)
 check('key saved', vim.fn.readfile(cc.paths.key_file)[1] == 'sk-ant-test-key')
 check('key file mode 600', stat and bit.band(stat.mode, tonumber('777', 8)) == tonumber('600', 8), stat and stat.mode)
@@ -45,18 +45,18 @@ local items = type(result) == 'table' and result.items or {}
 check('inline completion', items[1] and items[1].insertText == '  return a + b;\n}', result)
 
 -- 4. Backend switching.
-vim.cmd('ClaudeComplete backend copilot')
+vim.cmd('Cop backend copilot')
 check('copilot backend unsets copilot_command', vim.g.copilot_command == nil, vim.g.copilot_command)
 check('backend is saved', vim.fn.readfile(cc.paths.backend_file)[1] == 'copilot')
-vim.cmd('ClaudeComplete toggle')
-check('toggle returns to claude', vim.g.claude_complete_backend == 'claude' and vim.g.copilot_command ~= nil)
+vim.cmd('Cop toggle')
+check('toggle returns to anymodel', vim.g.copilot_anymodel_backend == 'anymodel' and vim.g.copilot_command ~= nil)
 check('server restarted', status():find('Ready') ~= nil, status())
 
 -- 5. Model listing and selection.
 local models = cc.list_models() or {}
 check('model list from server', #models == 2 and models[1].current == true, models)
 vim.g.copilot_settings = { selectedCompletionModel = 'claude-old' }
-vim.cmd('ClaudeComplete model mock-2')
+vim.cmd('Cop model mock-2')
 check('model is saved', cc.saved_model() == 'mock-2', cc.saved_model())
 check('stale :Copilot model choice dropped', vim.g.copilot_settings.selectedCompletionModel == nil, vim.g.copilot_settings)
 vim.wait(100)

@@ -1,5 +1,5 @@
 {
-  "name": "claude-complete.nvim",
+  "name": "copilot-anymodel.nvim",
   "version": "0.1.0",
   "private": true,
   "description": "Claude-powered inline completion for Neovim through copilot.vim",

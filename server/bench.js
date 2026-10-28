@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Measures completion latency against the real provider.
 //   node server/bench.js [file] [line] [runs] [model] [col|end|mid]
-//   key: ANTHROPIC_API_KEY, or the file saved by :ClaudeComplete setup
+//   key: ANTHROPIC_API_KEY, or the file saved by :Cop key
 
 import { readFileSync } from 'node:fs';
 import { buildContext } from './lib/prompt.js';
@@ -17,7 +17,7 @@ const lineText = text.split('\n')[line] ?? '';
 const character = colArg === 'end' ? lineText.length : colArg === 'mid' ? Math.ceil(lineText.length / 2) : Number(colArg);
 const position = { line, character };
 const ctx = buildContext({ text, languageId: file.split('.').pop(), path: file }, position);
-const keyFile = process.env.CLAUDE_COMPLETE_KEY_FILE ?? `${homedir()}/.local/share/nvim/claude-complete/api_key`;
+const keyFile = process.env.COPILOT_ANYMODEL_KEY_FILE ?? `${homedir()}/.local/share/nvim/copilot-anymodel/api_key`;
 const provider = createProvider({ credentials: createCredentials({ keyFile }) });
 
 console.log(`${model}  ${file}:${line + 1}:${position.character}  "${ctx.prefixLine}|${ctx.suffixLine}"`);

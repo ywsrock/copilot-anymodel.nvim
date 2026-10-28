@@ -1,5 +1,5 @@
 // Resolves the Anthropic API key: ANTHROPIC_API_KEY first, then the key file
-// written by `:ClaudeComplete setup`. The file is re-read when it changes, so a
+// written by `:Cop key`. The file is re-read when it changes, so a
 // key saved while Neovim is running takes effect on the next request.
 
 import { readFileSync, statSync } from 'node:fs';

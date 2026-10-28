@@ -28439,7 +28439,7 @@ function createProvider2() {
     async complete(ctx, { model, variant, signal }) {
       await new Promise((resolve2) => setTimeout(resolve2, 20));
       signal?.throwIfAborted();
-      const text = (process.env.CLAUDE_COMPLETE_MOCK_TEXT ?? "mock()").replaceAll("\\n", "\n");
+      const text = (process.env.COPILOT_ANYMODEL_MOCK_TEXT ?? "mock()").replaceAll("\\n", "\n");
       const body = variant ? `${text} // alt` : text;
       return { text: `<completion>${body}</completion>`, stats: { model, ttftMs: 20, totalMs: 20, usage: null } };
     }
@@ -28448,13 +28448,13 @@ function createProvider2() {
 
 // server/server.js
 var VERSION3 = "0.1.0";
-var ACCEPT_COMMAND = { title: "Accept", command: "claude-complete.accepted", arguments: [] };
+var ACCEPT_COMMAND = { title: "Accept", command: "copilot-anymodel.accepted", arguments: [] };
 function argValue(name) {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
 var providers = { claude: claude_exports, mock: mock_exports };
-var providerName = process.env.CLAUDE_COMPLETE_PROVIDER ?? "claude";
+var providerName = process.env.COPILOT_ANYMODEL_PROVIDER ?? "claude";
 var providerModule = providers[providerName];
 if (!providerModule) throw new Error(`unknown provider: ${providerName}`);
 var provider = providerModule.createProvider({ credentials: createCredentials({ keyFile: argValue("--key-file") }) });
@@ -28472,7 +28472,7 @@ var conn = createConnection();
 var docs = /* @__PURE__ */ new Map();
 var last = null;
 function log(message, type = 4) {
-  conn.notify("window/logMessage", { type, message: `[claude-complete] ${message}` });
+  conn.notify("window/logMessage", { type, message: `[copilot-anymodel] ${message}` });
 }
 function setStatus(kind, message = "") {
   conn.notify("didChangeStatus", { kind, message, busy: false });
@@ -28485,7 +28485,7 @@ function uriToPath(uri) {
   }
 }
 function applySettings(settings = {}) {
-  const own = settings.claude ?? {};
+  const own = settings.anymodel ?? {};
   const selected = settings.github?.copilot?.selectedCompletionModel;
   const next = { ...defaults2 };
   for (const key of Object.keys(defaults2)) {
@@ -28525,8 +28525,8 @@ async function generate2(uri, ctx, { variant, signal }) {
   const { text, stats } = await provider.complete(ctx, options);
   const completion = clean(text, ctx, { maxLines: options.maxLines });
   const u = stats.usage;
-  if (process.env.CLAUDE_COMPLETE_DUMP) {
-    appendFileSync(process.env.CLAUDE_COMPLETE_DUMP, `===== ${ctx.path}:${ctx.row + 1}
+  if (process.env.COPILOT_ANYMODEL_DUMP) {
+    appendFileSync(process.env.COPILOT_ANYMODEL_DUMP, `===== ${ctx.path}:${ctx.row + 1}
 ${ctx.stable}${ctx.volatile}
 ----- raw
 ${text}
@@ -28538,7 +28538,7 @@ ${text}
 }
 function reportError(err) {
   if (err?.status === 401 || err?.status === 403) {
-    setStatus("Error", `Authentication failed (${err.status}): run :ClaudeComplete setup to set a valid key`);
+    setStatus("Error", `Authentication failed (${err.status}): run :Cop key to set a valid key`);
   } else {
     setStatus("Warning", String(err?.message ?? err));
   }
@@ -28591,10 +28591,10 @@ conn.onRequest("initialize", (params) => {
       textDocumentSync: { openClose: true, change: 1 },
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } }
     },
-    serverInfo: { name: "claude-complete", version: VERSION3, nodeVersion: process.versions.node }
+    serverInfo: { name: "copilot-anymodel", version: VERSION3, nodeVersion: process.versions.node }
   };
 });
-var MISSING_KEY = "No Anthropic API key. Run :ClaudeComplete setup (or set ANTHROPIC_API_KEY).";
+var MISSING_KEY = "No Anthropic API key. Run :Cop key (or set ANTHROPIC_API_KEY).";
 conn.onNotification("initialized", () => {
   if (provider.hasCredentials()) {
     setStatus("Normal");

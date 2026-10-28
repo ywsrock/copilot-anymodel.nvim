@@ -12,7 +12,7 @@ fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export XDG_CONFIG_HOME="$tmp/config" XDG_DATA_HOME="$tmp/data" XDG_STATE_HOME="$tmp/state" XDG_CACHE_HOME="$tmp/cache"
-export CLAUDE_COMPLETE_PROVIDER=mock CLAUDE_COMPLETE_MOCK_TEXT='a + b;\n}'
+export COPILOT_ANYMODEL_PROVIDER=mock COPILOT_ANYMODEL_MOCK_TEXT='a + b;\n}'
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN || true
 
 nvim --headless -u test/minimal_init.lua -c 'luafile test/e2e.lua'

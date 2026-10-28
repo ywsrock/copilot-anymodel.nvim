@@ -1,32 +1,32 @@
--- claude-complete.nvim: Claude as the completion backend of copilot.vim.
+-- copilot-anymodel.nvim: any model as the completion backend of copilot.vim.
 --
 -- copilot.vim keeps providing the UI (ghost text, <Tab>, cycling, panel); this
--- module only points copilot.vim at the bundled language server, stores the
--- Anthropic API key and switches between Claude and the official GitHub server.
+-- module only points copilot.vim at the bundled language server, stores API
+-- keys and switches between the bundled server and the official GitHub one.
 
 local M = {}
 
 local uv = vim.uv or vim.loop
 
 local root = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h:h:h')
-local backends = { 'claude', 'copilot' }
+local backends = { 'anymodel', 'copilot' }
 
 M.paths = {
   server = root .. '/dist/server.mjs',
-  key_file = vim.fn.stdpath('data') .. '/claude-complete/api_key',
-  backend_file = vim.fn.stdpath('state') .. '/claude-complete/backend',
-  model_file = vim.fn.stdpath('state') .. '/claude-complete/model',
+  key_file = vim.fn.stdpath('data') .. '/copilot-anymodel/api_key',
+  backend_file = vim.fn.stdpath('state') .. '/copilot-anymodel/backend',
+  model_file = vim.fn.stdpath('state') .. '/copilot-anymodel/model',
 }
 
 M.config = {
-  -- Backend used until :ClaudeComplete backend picks another one.
-  default_backend = 'claude',
+  -- Backend used until :Cop backend picks another one.
+  default_backend = 'anymodel',
   -- Passed to the server, e.g. { model = 'claude-sonnet-5-5', debounceMs = 50 }.
   server = {},
 }
 
 local function notify(msg, level)
-  vim.notify('ClaudeComplete: ' .. msg, level or vim.log.levels.INFO)
+  vim.notify('Cop: ' .. msg, level or vim.log.levels.INFO)
 end
 
 local function valid_backend(name)
@@ -62,7 +62,7 @@ function M.key_source()
   return nil
 end
 
--- Model picked with :ClaudeComplete model, or nil.
+-- Model picked with :Cop model, or nil.
 function M.saved_model()
   local model = vim.trim(read_file(M.paths.model_file) or '')
   return model ~= '' and model or nil
@@ -73,7 +73,7 @@ local function is_claude_model(id)
 end
 
 -- :Copilot model stores its choice in g:copilot_settings, which both backends
--- receive. Drops it when it would override :ClaudeComplete model or reach GitHub.
+-- receive. Drops it when it would override :Cop model or reach GitHub.
 local function clear_copilot_model(keep)
   local settings = vim.g.copilot_settings
   if type(settings) == 'table' and is_claude_model(settings.selectedCompletionModel)
@@ -84,8 +84,8 @@ local function clear_copilot_model(keep)
 end
 
 local function apply(backend)
-  vim.g.claude_complete_backend = backend
-  if backend == 'claude' then
+  vim.g.copilot_anymodel_backend = backend
+  if backend == 'anymodel' then
     vim.g.copilot_command = { M.node_command(), M.paths.server, '--key-file', M.paths.key_file }
   else
     -- Unset: copilot.vim then starts GitHub's own language server.
@@ -96,7 +96,7 @@ local function apply(backend)
   server.model = M.saved_model() or server.model
   if not vim.tbl_isempty(server) then
     local settings = vim.g.copilot_lsp_settings or {}
-    settings.claude = server
+    settings.anymodel = server
     vim.g.copilot_lsp_settings = settings
   end
 end
@@ -114,15 +114,15 @@ end
 
 function M.set_backend(name)
   if not valid_backend(name) then
-    notify('unknown backend ' .. vim.inspect(name) .. ' (use claude or copilot)', vim.log.levels.ERROR)
+    notify('unknown backend ' .. vim.inspect(name) .. ' (use anymodel or copilot)', vim.log.levels.ERROR)
     return
   end
   vim.fn.mkdir(vim.fn.fnamemodify(M.paths.backend_file, ':h'), 'p')
   vim.fn.writefile({ name }, M.paths.backend_file)
   apply(name)
   restart()
-  if name == 'claude' and not M.key_source() then
-    notify('backend: claude (no API key yet, run :ClaudeComplete setup)', vim.log.levels.WARN)
+  if name == 'anymodel' and not M.key_source() then
+    notify('backend: anymodel (no API key yet, run :Cop key)', vim.log.levels.WARN)
   elseif name == 'copilot' then
     notify('backend: copilot (run :Copilot setup once if you are not signed in to GitHub)')
   else
@@ -131,7 +131,7 @@ function M.set_backend(name)
 end
 
 function M.toggle()
-  M.set_backend(vim.g.claude_complete_backend == 'claude' and 'copilot' or 'claude')
+  M.set_backend(vim.g.copilot_anymodel_backend == 'anymodel' and 'copilot' or 'anymodel')
 end
 
 -- Accepts a pasted shell line such as `export ANTHROPIC_API_KEY="sk-ant-..."`
@@ -174,8 +174,8 @@ function M.set_model(id)
   vim.fn.mkdir(vim.fn.fnamemodify(M.paths.model_file, ':h'), 'p')
   vim.fn.writefile({ id }, M.paths.model_file)
   clear_copilot_model(id)
-  apply(vim.g.claude_complete_backend)
-  if vim.g.claude_complete_backend == 'claude' then
+  apply(vim.g.copilot_anymodel_backend)
+  if vim.g.copilot_anymodel_backend == 'anymodel' then
     push_settings()
   end
   notify('model: ' .. id)
@@ -199,8 +199,8 @@ function M.select_model(id)
     M.set_model(id)
     return
   end
-  if vim.g.claude_complete_backend ~= 'claude' then
-    notify('model selection needs the claude backend (use :Copilot model for GitHub models)', vim.log.levels.WARN)
+  if vim.g.copilot_anymodel_backend ~= 'anymodel' then
+    notify('model selection needs the anymodel backend (use :Copilot model for GitHub models)', vim.log.levels.WARN)
     return
   end
   local models, err = M.list_models()
@@ -230,10 +230,10 @@ function M.logout()
   end
 end
 
-function M.info()
+function M.status()
   local source = M.key_source()
   print(table.concat({
-    'backend:  ' .. tostring(vim.g.claude_complete_backend),
+    'backend:  ' .. tostring(vim.g.copilot_anymodel_backend),
     'model:    ' .. (M.saved_model() or M.config.server.model or 'claude-haiku-5-5 (default)'),
     'api key:  ' .. (source == 'env' and 'ANTHROPIC_API_KEY' or source == 'file' and M.paths.key_file or 'not set'),
     'server:   ' .. M.paths.server,
@@ -242,22 +242,48 @@ function M.info()
 end
 
 local subcommands = {
-  setup = M.setup_key,
+  key = M.setup_key,
   backend = function(arg)
     if arg then
       M.set_backend(arg)
     else
-      notify('backend: ' .. tostring(vim.g.claude_complete_backend))
+      notify('backend: ' .. tostring(vim.g.copilot_anymodel_backend))
     end
   end,
   toggle = M.toggle,
   model = M.select_model,
-  info = M.info,
+  status = M.status,
   logout = M.logout,
 }
 
+local menu = {
+  { 'model', 'Pick a model' },
+  { 'toggle', 'Switch between anymodel and GitHub Copilot' },
+  { 'key', 'Save an API key' },
+  { 'status', 'Show backend, model and key' },
+  { 'logout', 'Delete the saved API key' },
+}
+
+-- :Cop without arguments: choose an action from a list.
+function M.menu()
+  vim.ui.select(menu, {
+    prompt = 'Cop',
+    format_item = function(item)
+      return string.format('%-7s %s', item[1], item[2])
+    end,
+  }, function(choice)
+    if choice then
+      subcommands[choice[1]]()
+    end
+  end)
+end
+
 local function command(opts)
-  local name, arg = opts.fargs[1] or 'info', opts.fargs[2]
+  local name, arg = opts.fargs[1], opts.fargs[2]
+  if not name then
+    M.menu()
+    return
+  end
   local fn = subcommands[name]
   if not fn then
     notify('unknown subcommand ' .. name, vim.log.levels.ERROR)
@@ -282,14 +308,14 @@ end
 -- Runs at startup from plugin/, before copilot.vim starts its client on VimEnter.
 function M.init()
   apply(M.saved_backend())
-  vim.api.nvim_create_user_command('ClaudeComplete', command, {
+  vim.api.nvim_create_user_command('Cop', command, {
     nargs = '*',
     complete = complete,
-    desc = 'claude-complete: setup | backend [claude|copilot] | toggle | model [id] | info | logout',
+    desc = 'copilot-anymodel: model [id] | toggle | backend [anymodel|copilot] | key | status | logout',
   })
 end
 
--- Optional, for plugin managers: require('claude_complete').setup({ ... })
+-- Optional, for plugin managers: require('copilot_anymodel').setup({ ... })
 function M.setup(opts)
   M.config = vim.tbl_deep_extend('force', M.config, opts or {})
   apply(M.saved_backend())

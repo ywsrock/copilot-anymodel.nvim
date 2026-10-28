@@ -13,7 +13,7 @@ import * as claude from './providers/claude.js';
 import * as mock from './providers/mock.js';
 
 const VERSION = '0.1.0';
-const ACCEPT_COMMAND = { title: 'Accept', command: 'claude-complete.accepted', arguments: [] };
+const ACCEPT_COMMAND = { title: 'Accept', command: 'copilot-anymodel.accepted', arguments: [] };
 
 function argValue(name) {
   const i = process.argv.indexOf(name);
@@ -21,7 +21,7 @@ function argValue(name) {
 }
 
 const providers = { claude, mock };
-const providerName = process.env.CLAUDE_COMPLETE_PROVIDER ?? 'claude';
+const providerName = process.env.COPILOT_ANYMODEL_PROVIDER ?? 'claude';
 const providerModule = providers[providerName];
 if (!providerModule) throw new Error(`unknown provider: ${providerName}`);
 const provider = providerModule.createProvider({ credentials: createCredentials({ keyFile: argValue('--key-file') }) });
@@ -44,7 +44,7 @@ let last = null; // most recent primary completion, reused while the user types 
 // ---------------------------------------------------------------- helpers
 
 function log(message, type = 4) {
-  conn.notify('window/logMessage', { type, message: `[claude-complete] ${message}` });
+  conn.notify('window/logMessage', { type, message: `[copilot-anymodel] ${message}` });
 }
 
 function setStatus(kind, message = '') {
@@ -60,7 +60,7 @@ function uriToPath(uri) {
 }
 
 function applySettings(settings = {}) {
-  const own = settings.claude ?? {};
+  const own = settings.anymodel ?? {};
   const selected = settings.github?.copilot?.selectedCompletionModel;
   const next = { ...defaults };
   for (const key of Object.keys(defaults)) {
@@ -107,8 +107,8 @@ async function generate(uri, ctx, { variant, signal }) {
   const { text, stats } = await provider.complete(ctx, options);
   const completion = clean(text, ctx, { maxLines: options.maxLines });
   const u = stats.usage;
-  if (process.env.CLAUDE_COMPLETE_DUMP) {
-    appendFileSync(process.env.CLAUDE_COMPLETE_DUMP, `===== ${ctx.path}:${ctx.row + 1}\n${ctx.stable}${ctx.volatile}\n----- raw\n${text}\n`);
+  if (process.env.COPILOT_ANYMODEL_DUMP) {
+    appendFileSync(process.env.COPILOT_ANYMODEL_DUMP, `===== ${ctx.path}:${ctx.row + 1}\n${ctx.stable}${ctx.volatile}\n----- raw\n${text}\n`);
   }
   log(`${stats.model}${variant ? ' (alt)' : ''} at=${ctx.row + 1}:${ctx.prefixLine.length} ttft=${stats.ttftMs}ms total=${stats.totalMs}ms` +
     (u ? ` in=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0}` : '') +
@@ -119,7 +119,7 @@ async function generate(uri, ctx, { variant, signal }) {
 
 function reportError(err) {
   if (err?.status === 401 || err?.status === 403) {
-    setStatus('Error', `Authentication failed (${err.status}): run :ClaudeComplete setup to set a valid key`);
+    setStatus('Error', `Authentication failed (${err.status}): run :Cop key to set a valid key`);
   } else {
     setStatus('Warning', String(err?.message ?? err));
   }
@@ -180,11 +180,11 @@ conn.onRequest('initialize', (params) => {
       textDocumentSync: { openClose: true, change: 1 },
       workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
     },
-    serverInfo: { name: 'claude-complete', version: VERSION, nodeVersion: process.versions.node },
+    serverInfo: { name: 'copilot-anymodel', version: VERSION, nodeVersion: process.versions.node },
   };
 });
 
-const MISSING_KEY = 'No Anthropic API key. Run :ClaudeComplete setup (or set ANTHROPIC_API_KEY).';
+const MISSING_KEY = 'No Anthropic API key. Run :Cop key (or set ANTHROPIC_API_KEY).';
 
 conn.onNotification('initialized', () => {
   if (provider.hasCredentials()) {

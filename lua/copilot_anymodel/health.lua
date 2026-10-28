@@ -1,12 +1,12 @@
--- :checkhealth claude_complete
+-- :checkhealth copilot_anymodel
 
 local M = {}
 
 function M.check()
-  local cc = require('claude_complete')
+  local cc = require('copilot_anymodel')
   local health = vim.health
 
-  health.start('claude-complete')
+  health.start('copilot-anymodel')
 
   local node = cc.node_command()
   if vim.fn.executable(node) == 1 then
@@ -33,18 +33,18 @@ function M.check()
     health.error('server bundle missing: ' .. cc.paths.server, 'Reinstall the plugin')
   end
 
-  local backend = vim.g.claude_complete_backend
-  health.info('backend: ' .. tostring(backend) .. ' (switch with :ClaudeComplete backend claude|copilot)')
+  local backend = vim.g.copilot_anymodel_backend
+  health.info('backend: ' .. tostring(backend) .. ' (switch with :Cop toggle)')
 
   local source = cc.key_source()
   if source == 'env' then
     health.ok('API key from ANTHROPIC_API_KEY')
   elseif source == 'file' then
     health.ok('API key from ' .. cc.paths.key_file)
-  elseif backend == 'claude' then
-    health.error('no Anthropic API key', 'Run :ClaudeComplete setup')
+  elseif backend == 'anymodel' then
+    health.error('no Anthropic API key', 'Run :Cop key')
   else
-    health.info('no Anthropic API key (only needed for the claude backend)')
+    health.info('no Anthropic API key (only needed for the anymodel backend)')
   end
 end
 

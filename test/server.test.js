@@ -15,7 +15,7 @@ const serverPath = fileURLToPath(new URL('../dist/server.mjs', import.meta.url))
 
 function startServer(env = {}, args = []) {
   const child = spawn(process.execPath, [serverPath, ...args], {
-    env: { ...process.env, CLAUDE_COMPLETE_PROVIDER: 'mock', ...env },
+    env: { ...process.env, COPILOT_ANYMODEL_PROVIDER: 'mock', ...env },
     stdio: ['pipe', 'pipe', 'inherit'],
   });
   let buffer = Buffer.alloc(0);
@@ -93,13 +93,13 @@ test('stable prompt part does not change while typing within a chunk', () => {
 });
 
 test('LSP round trip: inline completion, continuation cache, cancel, compat methods', async (t) => {
-  const server = startServer({ CLAUDE_COMPLETE_MOCK_TEXT: 'world()\\nnext()' });
+  const server = startServer({ COPILOT_ANYMODEL_MOCK_TEXT: 'world()\\nnext()' });
   t.after(() => server.close());
 
   const init = await server.request('initialize', { capabilities: {} }).response;
-  assert.equal(init.result.serverInfo.name, 'claude-complete');
+  assert.equal(init.result.serverInfo.name, 'copilot-anymodel');
   server.notify('initialized', {});
-  server.notify('workspace/didChangeConfiguration', { settings: { claude: { debounceMs: 0 } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { debounceMs: 0 } } });
 
   const uri = 'file:///tmp/a.js';
   server.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'javascript', version: 1, text: 'hello \n' } });
@@ -124,7 +124,7 @@ test('LSP round trip: inline completion, continuation cache, cancel, compat meth
   assert.ok(cycle.result.items.length >= 2);
 
   // Cancel during debounce.
-  server.notify('workspace/didChangeConfiguration', { settings: { claude: { debounceMs: 500 } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { debounceMs: 500 } } });
   server.notify('textDocument/didChange', { textDocument: { uri, version: 3 }, contentChanges: [{ text: 'other \n' }] });
   const pending = server.request('textDocument/inlineCompletion', {
     textDocument: { uri }, position: { line: 0, character: 6 }, context: { triggerKind: 2 },
@@ -161,7 +161,7 @@ test('credentials: env wins, key file is re-read when it changes', () => {
 });
 
 test('real provider without a key reports a setup hint instead of calling the API', async (t) => {
-  const server = startServer({ CLAUDE_COMPLETE_PROVIDER: 'claude', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' },
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'claude', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' },
     ['--key-file', join(tmpdir(), 'cc-missing-key')]);
   t.after(() => server.close());
   await server.request('initialize', {}).response;
@@ -172,7 +172,7 @@ test('real provider without a key reports a setup hint instead of calling the AP
   assert.deepEqual(r.result.items, []);
   const status = server.notifications.filter((n) => n.method === 'didChangeStatus').at(-1);
   assert.equal(status.params.kind, 'Error');
-  assert.match(status.params.message, /ClaudeComplete setup/);
+  assert.match(status.params.message, /Cop key/);
 });
 
 test('normalizeKey accepts a pasted shell line', () => {
@@ -183,7 +183,7 @@ test('normalizeKey accepts a pasted shell line', () => {
 });
 
 test('copilot/models lists every model and follows the selected one', async (t) => {
-  const server = startServer({ CLAUDE_COMPLETE_MOCK_TEXT: 'x' });
+  const server = startServer({ COPILOT_ANYMODEL_MOCK_TEXT: 'x' });
   t.after(() => server.close());
   await server.request('initialize', {}).response;
   server.notify('initialized', {});
@@ -192,12 +192,12 @@ test('copilot/models lists every model and follows the selected one', async (t) 
   assert.deepEqual(models.map((m) => m.id), ['mock', 'mock-2']);
   assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock']);
 
-  server.notify('workspace/didChangeConfiguration', { settings: { claude: { model: 'mock-2' } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock-2' } } });
   models = await ids();
   assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
 
   // A GitHub model id left in g:copilot_settings is ignored.
-  server.notify('workspace/didChangeConfiguration', { settings: { claude: { model: 'mock-2' }, github: { copilot: { selectedCompletionModel: 'gpt-4o-copilot' } } } });
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'mock-2' }, github: { copilot: { selectedCompletionModel: 'gpt-4o-copilot' } } } });
   models = await ids();
   assert.deepEqual(models.filter((m) => m.current).map((m) => m.id), ['mock-2']);
 });
