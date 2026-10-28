@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Weekly, to catch protocol changes in the latest copilot.vim.
+    - cron: '0 3 * * 1'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: dist/ is built from server/
+        run: npm run build && git diff --exit-code dist/
+      - run: npm test
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - run: npm run test:e2e
