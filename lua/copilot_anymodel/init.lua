@@ -25,16 +25,36 @@ M.config = {
   server = {},
 }
 
--- Providers that need an API key (same names as server/providers/).
+-- Built-in providers that take an API key (same names as in server/server.js).
 M.key_providers = {
   anthropic = { env = 'ANTHROPIC_API_KEY', prefix = 'sk-ant-', url = 'https://console.anthropic.com' },
+  openai = { env = 'OPENAI_API_KEY', prefix = 'sk-', url = 'https://platform.openai.com/api-keys' },
+  openrouter = { env = 'OPENROUTER_API_KEY', prefix = 'sk-or-', url = 'https://openrouter.ai/keys' },
 }
+
+-- Key settings of a provider: built-in, or an openai-compatible one from config.server.providers.
+function M.key_info(provider)
+  if M.key_providers[provider] then
+    return M.key_providers[provider]
+  end
+  local options = vim.tbl_get(M.config.server, 'providers', provider)
+  if type(options) == 'table' and options.type == 'openai-compatible' then
+    return { env = options.apiKeyEnv, url = options.baseUrl or '' }
+  end
+  return nil
+end
 
 local function key_provider_names()
   local names = vim.tbl_keys(M.key_providers)
+  for name, options in pairs(M.config.server.providers or {}) do
+    if not M.key_providers[name] and type(options) == 'table' and options.type == 'openai-compatible' then
+      table.insert(names, name)
+    end
+  end
   table.sort(names)
   return names
 end
+M.key_provider_names = key_provider_names
 
 function M.key_file(provider)
   return M.paths.key_dir .. '/' .. provider
@@ -69,7 +89,7 @@ end
 -- Where a provider's API key comes from: 'env', 'file' or nil.
 function M.key_source(provider)
   provider = provider or 'anthropic'
-  local env = M.key_providers[provider] and M.key_providers[provider].env
+  local env = M.key_info(provider) and M.key_info(provider).env
   if env and (vim.env[env] or '') ~= '' then
     return 'env'
   end
@@ -146,7 +166,8 @@ function M.set_backend(name)
   apply(name)
   restart()
   local provider = M.model_provider()
-  if name == 'anymodel' and M.key_providers[provider] and not M.key_source(provider) then
+  local needs_key = M.key_providers[provider] ~= nil
+  if name == 'anymodel' and needs_key and not M.key_source(provider) then
     notify('backend: anymodel (no ' .. provider .. ' API key yet, run :Cop key ' .. provider .. ')', vim.log.levels.WARN)
   elseif name == 'copilot' then
     notify('backend: copilot (run :Copilot setup once if you are not signed in to GitHub)')
@@ -172,7 +193,7 @@ end
 -- Runs fn(provider) for the given provider, or asks which one when there are several.
 local function with_key_provider(provider, fn)
   if provider then
-    if not M.key_providers[provider] then
+    if not M.key_info(provider) then
       notify('unknown provider ' .. provider .. ' (' .. table.concat(key_provider_names(), ', ') .. ')', vim.log.levels.ERROR)
       return
     end
@@ -192,7 +213,7 @@ local function with_key_provider(provider, fn)
 end
 
 local function save_key(provider)
-  local info = M.key_providers[provider]
+  local info = M.key_info(provider)
   local key = M.normalize_key(vim.fn.inputsecret(provider .. ' API key (' .. info.url .. '): '))
   vim.cmd('redraw')
   if key == '' then
@@ -211,7 +232,7 @@ local function save_key(provider)
   uv.fs_chmod(tmp, tonumber('600', 8))
   assert(uv.fs_rename(tmp, path))
   notify(provider .. ' API key saved to ' .. path)
-  if (vim.env[info.env] or '') ~= '' then
+  if info.env and (vim.env[info.env] or '') ~= '' then
     notify('note: ' .. info.env .. ' is set and takes precedence over the saved key', vim.log.levels.WARN)
   end
 end
@@ -294,7 +315,7 @@ function M.status()
   }
   for _, provider in ipairs(key_provider_names()) do
     local source = M.key_source(provider)
-    local where = source == 'env' and M.key_providers[provider].env or source == 'file' and M.key_file(provider) or 'not set'
+    local where = source == 'env' and M.key_info(provider).env or source == 'file' and M.key_file(provider) or 'not set'
     table.insert(lines, string.format('key:      %s: %s', provider, where))
   end
   vim.list_extend(lines, { 'server:   ' .. M.paths.server, 'node:     ' .. M.node_command() })

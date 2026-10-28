@@ -1,7 +1,8 @@
 # copilot-anymodel.nvim
 
 Keep the [copilot.vim](https://github.com/github/copilot.vim) interface, pick
-the model behind it: Claude, or local models through Ollama. OpenAI is planned.
+the model behind it: Claude, OpenAI (including Codex), OpenRouter, local models
+through Ollama, or any OpenAI-compatible server.
 
 copilot.vim keeps doing what it does well (ghost text, `<Tab>` to accept,
 cycling, the panel). This plugin swaps the language server behind it for one
@@ -20,6 +21,7 @@ server.
 - [copilot.vim](https://github.com/github/copilot.vim)
 - For Claude: an Anthropic API key with credit: <https://console.anthropic.com>
   (a claude.ai Pro/Max subscription does not include API usage)
+- For OpenAI / OpenRouter: an API key from that service
 - For local models: [Ollama](https://ollama.com) running (no key needed)
 
 No `npm install`: the server ships as a single bundled file in `dist/`.
@@ -86,7 +88,7 @@ request.
 | `:Cop model [id]` | Pick from every model of every configured provider, e.g. `anthropic/claude-haiku-5-5` |
 | `:Cop toggle` | Switch between this plugin's server and GitHub Copilot |
 | `:Cop backend anymodel\|copilot` | Choose one of the two explicitly |
-| `:Cop key [provider]` | Save a provider's API key (`anthropic`) |
+| `:Cop key [provider]` | Save a provider's API key (`anthropic`, `openai`, `openrouter`, …) |
 | `:Cop status` | Show backend, model, key source and paths |
 | `:Cop logout [provider]` | Delete a saved API key |
 
@@ -125,6 +127,30 @@ copilot.vim options such as `g:copilot_filetypes` keep working.
 |---|---|---|
 | `anthropic` | `:Cop key anthropic` | Every model your key can use, from the Models API |
 | `ollama` | Ollama running locally | Every installed model that can generate text |
+| `openai` | `:Cop key openai` | GPT and Codex text models (Responses API) |
+| `openrouter` | `:Cop key openrouter` | Every model OpenRouter serves |
+| your own name | `type = 'openai-compatible'` (below) | Whatever the server lists |
+
+A provider whose key is not set does not appear in `:Cop model`.
+
+**OpenAI** uses the Responses API, which the Codex models require. The lowest
+reasoning effort a model accepts is used (`none`, else `minimal`, else `low`).
+
+**OpenAI-compatible servers** (LM Studio, vLLM, llama.cpp server, Ollama's
+`/v1`, …) are added under a name of your choice and use Chat Completions:
+
+```lua
+server = {
+  providers = {
+    lmstudio = { type = 'openai-compatible', baseUrl = 'http://localhost:1234/v1' },
+    -- with a key: apiKeyEnv = 'MY_SERVER_KEY', or :Cop key lmstudio
+  },
+},
+```
+
+Their models then show up as `lmstudio/<model>`. For Ollama itself prefer the
+`ollama` provider: it uses fill-in-the-middle, which small local models
+complete much better than the chat prompt.
 
 **Ollama.** Models with the `insert` capability (shown as `FIM`, e.g.
 `qwen2.5-coder`) get a fill-in-the-middle request; other models get the chat

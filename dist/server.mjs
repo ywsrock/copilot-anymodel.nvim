@@ -1831,15 +1831,15 @@ async function* _iterSSEMessages(response, controller) {
   const iter = ReadableStreamToAsyncIterable(response.body);
   for await (const chunk of iter) {
     for (const line of lineDecoder.decode(chunk)) {
-      const sse = sseDecoder.decode(line);
-      if (sse)
-        yield sse;
+      const sse2 = sseDecoder.decode(line);
+      if (sse2)
+        yield sse2;
     }
   }
   for (const line of lineDecoder.flush()) {
-    const sse = sseDecoder.decode(line);
-    if (sse)
-      yield sse;
+    const sse2 = sseDecoder.decode(line);
+    if (sse2)
+      yield sse2;
   }
 }
 function partition(str, delimiter2) {
@@ -1892,25 +1892,25 @@ var init_streaming = __esm({
             consumed = true;
             let done = false;
             try {
-              for await (const sse of _iterSSEMessages(response, controller)) {
-                if (sse.event === "ping") {
+              for await (const sse2 of _iterSSEMessages(response, controller)) {
+                if (sse2.event === "ping") {
                   continue;
                 }
-                if (sse.event === null) {
+                if (sse2.event === null) {
                   continue;
                 }
-                if (sse.event === "error") {
-                  const body = safeJSON(sse.data) ?? sse.data;
+                if (sse2.event === "error") {
+                  const body = safeJSON(sse2.data) ?? sse2.data;
                   const type = body?.error?.type;
                   throw new APIError(void 0, body, void 0, response.headers, type);
                 } else {
-                  if (!sse.data)
+                  if (!sse2.data)
                     continue;
                   try {
-                    yield JSON.parse(sse.data);
+                    yield JSON.parse(sse2.data);
                   } catch (e) {
-                    logger.error(`Could not parse message into JSON:`, sse.data);
-                    logger.error(`From chunk:`, sse.raw);
+                    logger.error(`Could not parse message into JSON:`, sse2.data);
+                    logger.error(`From chunk:`, sse2.raw);
                     throw e;
                   }
                 }
@@ -2044,7 +2044,7 @@ var init_streaming = __esm({
         if (!line) {
           if (!this.event && !this.data.length)
             return null;
-          const sse = {
+          const sse2 = {
             event: this.event,
             data: this.data.join("\n"),
             raw: this.chunks
@@ -2052,7 +2052,7 @@ var init_streaming = __esm({
           this.event = null;
           this.data = [];
           this.chunks = [];
-          return sse;
+          return sse2;
         }
         this.chunks.push(line);
         if (line.startsWith(":")) {
@@ -4470,12 +4470,12 @@ async function defaultCredentials(options, profile) {
 function buildProvider(config2, credentialsPath, baseURL, options) {
   switch (config2.authentication.type) {
     case "oidc_federation": {
-      const auth4 = config2.authentication;
-      const identityProvider = resolveIdentityTokenProvider(auth4);
+      const auth5 = config2.authentication;
+      const identityProvider = resolveIdentityTokenProvider(auth5);
       if (!identityProvider) {
         throw new WorkloadIdentityError("oidc_federation config requires an identity token (set authentication.identity_token, ANTHROPIC_IDENTITY_TOKEN_FILE, or ANTHROPIC_IDENTITY_TOKEN)");
       }
-      if (!auth4.federation_rule_id) {
+      if (!auth5.federation_rule_id) {
         throw new WorkloadIdentityError("oidc_federation config requires 'federation_rule_id'. Set it in authentication.federation_rule_id in your profile, or via ANTHROPIC_FEDERATION_RULE_ID (profile takes precedence).");
       }
       if (!config2.organization_id) {
@@ -4483,9 +4483,9 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
       }
       const exchange = oidcFederationProvider({
         identityTokenProvider: identityProvider,
-        federationRuleId: auth4.federation_rule_id,
+        federationRuleId: auth5.federation_rule_id,
         organizationId: config2.organization_id,
-        serviceAccountId: auth4.service_account_id,
+        serviceAccountId: auth5.service_account_id,
         workspaceId: config2.workspace_id,
         baseURL,
         fetch: options.fetch,
@@ -4515,16 +4515,16 @@ function buildProvider(config2, credentialsPath, baseURL, options) {
     }
   }
 }
-function resolveIdentityTokenProvider(auth4) {
-  if (auth4.identity_token) {
-    const source = auth4.identity_token.source;
+function resolveIdentityTokenProvider(auth5) {
+  if (auth5.identity_token) {
+    const source = auth5.identity_token.source;
     if (source !== "file") {
       throw new WorkloadIdentityError(`identity_token.source "${source}" is not supported by this SDK version (only "file")`);
     }
-    if (!auth4.identity_token.path) {
+    if (!auth5.identity_token.path) {
       throw new WorkloadIdentityError(`identity_token.source "file" requires a non-empty path`);
     }
-    return identityTokenFromFile(auth4.identity_token.path);
+    return identityTokenFromFile(auth5.identity_token.path);
   }
   const tokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
   if (tokenFile) {
@@ -28345,11 +28345,11 @@ function createProvider({ credentials }) {
   let clientKey = null;
   let catalog = null;
   function getClient() {
-    const auth4 = credentials.resolve();
-    if (!auth4) return null;
-    const key = auth4.apiKey ?? auth4.authToken;
+    const auth5 = credentials.resolve();
+    if (!auth5) return null;
+    const key = auth5.apiKey ?? auth5.authToken;
     if (key !== clientKey) {
-      client = new Anthropic({ apiKey: auth4.apiKey ?? null, authToken: auth4.authToken ?? null, maxRetries: 0, timeout: 1e4 });
+      client = new Anthropic({ apiKey: auth5.apiKey ?? null, authToken: auth5.authToken ?? null, maxRetries: 0, timeout: 1e4 });
       clientKey = key;
     }
     return client;
@@ -28595,6 +28595,163 @@ function createProvider3({ options = {}, env = process.env } = {}) {
   };
 }
 
+// server/providers/openai.js
+var openai_exports = {};
+__export(openai_exports, {
+  auth: () => auth4,
+  createProvider: () => createProvider4,
+  models: () => models4
+});
+var auth4 = { apiKeyEnv: "OPENAI_API_KEY" };
+var models4 = [{ id: "gpt-5.4-mini", modelName: "gpt-5.4-mini" }];
+var LIST_TIMEOUT_MS2 = 5e3;
+var EFFORTS = ["none", "minimal", "low"];
+var REASONING_HEADROOM = 2048;
+var OPENAI_TEXT = /^(gpt-|o\d|codex|chatgpt)/;
+var OPENAI_NOT_TEXT = /(audio|realtime|tts|transcribe|image|search|embedding|moderation|dall-e|whisper|instruct)/;
+async function* sse(body) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") return;
+      if (data) yield JSON.parse(data);
+    }
+  }
+}
+function createProvider4({ credentials, options = {} } = {}) {
+  const api = options.api ?? "responses";
+  const baseUrl = (options.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
+  const requiresKey = options.requiresKey ?? api === "responses";
+  const effortFor = /* @__PURE__ */ new Map();
+  function headers() {
+    const auth5 = credentials?.resolve();
+    const h = { "content-type": "application/json" };
+    if (auth5) h.authorization = `Bearer ${auth5.apiKey ?? auth5.authToken}`;
+    return h;
+  }
+  async function call(path4, init) {
+    const res = await fetch(baseUrl + path4, { ...init, headers: { ...headers(), ...init?.headers } });
+    if (!res.ok) {
+      const text = await res.text();
+      let message = text;
+      try {
+        message = JSON.parse(text).error?.message ?? text;
+      } catch {
+      }
+      const err = new Error(`${res.status} ${String(message).slice(0, 300)}`);
+      err.status = res.status;
+      err.apiMessage = String(message);
+      throw err;
+    }
+    return res;
+  }
+  function prompt(ctx, variant) {
+    return [ctx.stable + ctx.volatile, instructions(ctx, { variant })].filter(Boolean).join("\n\n");
+  }
+  function responsesBody(ctx, { model, maxTokens, variant }) {
+    const level = effortFor.get(model) ?? 0;
+    const effort = EFFORTS[level];
+    const body = {
+      model,
+      instructions: SYSTEM_PROMPT,
+      input: prompt(ctx, variant),
+      stream: true,
+      store: false,
+      max_output_tokens: effort && effort !== "none" ? maxTokens + REASONING_HEADROOM : maxTokens
+    };
+    if (effort) body.reasoning = { effort };
+    return body;
+  }
+  function chatBody(ctx, { model, maxTokens, variant }) {
+    return {
+      model,
+      stream: true,
+      max_tokens: maxTokens,
+      temperature: variant ? 0.6 : 0,
+      stop: [CLOSE_TAG],
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: prompt(ctx, variant) }]
+    };
+  }
+  function readEvent(event, stats) {
+    if (api === "responses") {
+      if (event.type === "response.output_text.delta") return event.delta;
+      if (event.type === "response.completed") {
+        const u = event.response?.usage;
+        if (u) stats.usage = { input_tokens: u.input_tokens, output_tokens: u.output_tokens, cache_read_input_tokens: u.input_tokens_details?.cached_tokens };
+      }
+      if (event.type === "error" || event.type === "response.failed") {
+        throw new Error(event.message ?? event.response?.error?.message ?? "OpenAI stream failed");
+      }
+      return "";
+    }
+    if (event.usage) stats.usage = { input_tokens: event.usage.prompt_tokens, output_tokens: event.usage.completion_tokens };
+    return event.choices?.[0]?.delta?.content ?? "";
+  }
+  async function stream2(ctx, opts, signal) {
+    for (; ; ) {
+      const body = api === "responses" ? responsesBody(ctx, opts) : chatBody(ctx, opts);
+      const path4 = api === "responses" ? "/responses" : "/chat/completions";
+      try {
+        return await call(path4, { method: "POST", body: JSON.stringify(body), signal });
+      } catch (err) {
+        const level = effortFor.get(opts.model) ?? 0;
+        if (api === "responses" && err.status === 400 && /reasoning|effort/i.test(err.apiMessage ?? "") && level < EFFORTS.length) {
+          effortFor.set(opts.model, level + 1);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+  return {
+    name: options.name ?? "openai",
+    ready() {
+      return !requiresKey || credentials?.resolve() != null;
+    },
+    async listModels() {
+      const res = await call("/models", { signal: AbortSignal.timeout(LIST_TIMEOUT_MS2) });
+      const data = (await res.json()).data ?? [];
+      return data.map((m) => m.id).filter((id) => api !== "responses" || OPENAI_TEXT.test(id) && !OPENAI_NOT_TEXT.test(id)).sort().map((id) => ({ id, modelName: id }));
+    },
+    // Streams a completion and stops once the closing tag or `maxLines` is reached.
+    async complete(ctx, { model, maxTokens, maxLines, variant, signal }) {
+      const started = performance.now();
+      const stats = { model, ttftMs: null, totalMs: null, usage: null };
+      const controller = new AbortController();
+      const onAbort = () => controller.abort(signal.reason);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      let raw = "";
+      try {
+        const res = await stream2(ctx, { model, maxTokens, variant }, controller.signal);
+        for await (const event of sse(res.body)) {
+          const piece = readEvent(event, stats);
+          if (!piece) continue;
+          stats.ttftMs ??= Math.round(performance.now() - started);
+          raw += piece;
+          if (raw.includes(CLOSE_TAG) || extractCompletion(raw).split("\n").length > maxLines) {
+            controller.abort();
+            break;
+          }
+        }
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err;
+        if (!controller.signal.aborted) throw err;
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
+      stats.totalMs = Math.round(performance.now() - started);
+      return { text: extractCompletion(raw), raw, stats };
+    }
+  };
+}
+
 // server/server.js
 var VERSION3 = "0.1.0";
 var ACCEPT_COMMAND = { title: "Accept", command: "copilot-anymodel.accepted", arguments: [] };
@@ -28602,15 +28759,39 @@ function argValue(name) {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
-var registry2 = { anthropic: anthropic_exports, ollama: ollama_exports, mock: mock_exports };
+function preset(mod, options, auth5, models5 = mod.models) {
+  return {
+    ...mod,
+    auth: auth5,
+    models: models5,
+    createProvider: (args) => mod.createProvider({ ...args, options: { ...options, ...args.options } })
+  };
+}
+var builtins = {
+  anthropic: anthropic_exports,
+  ollama: ollama_exports,
+  mock: mock_exports,
+  openai: preset(openai_exports, { api: "responses", baseUrl: "https://api.openai.com/v1" }, { apiKeyEnv: "OPENAI_API_KEY" }),
+  openrouter: preset(
+    openai_exports,
+    { api: "chat", baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
+    { apiKeyEnv: "OPENROUTER_API_KEY" },
+    [{ id: "openai/gpt-5.4-mini", modelName: "openai/gpt-5.4-mini" }]
+  )
+};
+function registryEntry(name) {
+  if (builtins[name]) return builtins[name];
+  const options = config.providers?.[name];
+  if (options?.type !== "openai-compatible" || !options.baseUrl) return null;
+  return preset(openai_exports, { api: "chat", requiresKey: false, name }, { apiKeyEnv: options.apiKeyEnv ?? null }, []);
+}
 var keyDir = argValue("--key-dir");
 var pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(",").filter(Boolean) ?? null;
-for (const name of pinned ?? []) if (!registry2[name]) throw new Error(`unknown provider: ${name}`);
 var instances = /* @__PURE__ */ new Map();
 function getProvider(name) {
-  if (!registry2[name]) return null;
+  const mod = registryEntry(name);
+  if (!mod) return null;
   if (!instances.has(name)) {
-    const mod = registry2[name];
     const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join2(keyDir, name) : null, ...mod.auth });
     instances.set(name, mod.createProvider({ credentials, options: providerOptions(name) }));
   }
@@ -28621,15 +28802,15 @@ function providerOptions(name) {
   return options && typeof options === "object" ? options : {};
 }
 function enabledProviders() {
-  if (pinned) return pinned;
-  const configured = Object.keys(config.providers ?? {}).filter((n) => registry2[n] && n !== "mock");
-  return [.../* @__PURE__ */ new Set(["anthropic", "ollama", ...configured])].filter((n) => config.providers?.[n] !== false);
+  if (pinned) return pinned.filter((n) => registryEntry(n));
+  const configured = Object.keys(config.providers ?? {}).filter((n) => registryEntry(n) && n !== "mock");
+  return [.../* @__PURE__ */ new Set(["anthropic", "ollama", "openai", "openrouter", ...configured])].filter((n) => config.providers?.[n] !== false);
 }
 var TUNABLE = ["maxTokens", "maxLines", "debounceMs", "linesBefore", "linesAfter", "alternatives"];
 function settingsFor(name) {
   const result = {};
   for (const key of TUNABLE) {
-    for (const source of [defaults3, registry2[name].defaults ?? {}, own, providerOptions(name)]) {
+    for (const source of [defaults3, registryEntry(name).defaults ?? {}, own, providerOptions(name)]) {
       if (source[key] !== void 0 && source[key] !== null) result[key] = source[key];
     }
   }
@@ -28640,7 +28821,7 @@ function currentModel() {
   const enabled = enabledProviders();
   if (parsed && enabled.includes(parsed.provider)) return parsed;
   const name = enabled[0];
-  return { provider: name, model: registry2[name].models[0].id };
+  return { provider: name, model: registryEntry(name).models[0]?.id };
 }
 var defaults3 = {
   model: "anthropic/claude-haiku-5-5",
@@ -28791,7 +28972,7 @@ conn.onRequest("initialize", (params) => {
   };
 });
 function missingKey(name) {
-  const env = registry2[name].auth?.apiKeyEnv;
+  const env = registryEntry(name)?.auth?.apiKeyEnv;
   return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ""}.`;
 }
 var warmed = null;

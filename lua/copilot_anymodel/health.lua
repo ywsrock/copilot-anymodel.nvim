@@ -38,17 +38,15 @@ function M.check()
 
   local active = cc.model_provider()
   health.info('model provider: ' .. active .. ' (pick a model with :Cop model)')
-  local names = vim.tbl_keys(cc.key_providers)
-  table.sort(names)
-  for _, provider in ipairs(names) do
+  for _, provider in ipairs(cc.key_provider_names()) do
     local source = cc.key_source(provider)
     if source == 'env' then
-      health.ok(provider .. ' API key from ' .. cc.key_providers[provider].env)
+      health.ok(provider .. ' API key from ' .. cc.key_info(provider).env)
     elseif source == 'file' then
       health.ok(provider .. ' API key from ' .. cc.key_file(provider))
-    elseif backend == 'anymodel' and provider == active then
+    elseif backend == 'anymodel' and provider == active and cc.key_providers[provider] then
       health.error('no ' .. provider .. ' API key', 'Run :Cop key ' .. provider)
-    else
+    elseif cc.key_providers[provider] then
       health.info('no ' .. provider .. ' API key (only needed for ' .. provider .. ' models)')
     end
   end

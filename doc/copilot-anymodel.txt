@@ -40,7 +40,8 @@ Completion keys, ghost text and the panel are copilot.vim's: |copilot-maps|.
                               needs a Copilot subscription and |:Copilot| setup
                               once). Restarts the server; remembered across
                               sessions.
-:Cop key [{provider}]         Save a provider's API key (anthropic).
+:Cop key [{provider}]         Save a provider's API key (anthropic, openai,
+                              openrouter, or an openai-compatible one).
 :Cop status                   Show backend, model, key source and paths.
 :Cop logout [{provider}]      Delete a saved key.
 
@@ -85,6 +86,16 @@ options per provider: >lua
     }
 <
 $OLLAMA_HOST is used when baseUrl is not set.
+
+                                                  *copilot-anymodel-openai*
+`openai` (Responses API, needed for Codex models) and `openrouter` appear once
+their key is set with |:Cop| key. Any OpenAI-compatible server can be added
+under a name of your choice: >lua
+    providers = {
+      lmstudio = { type = 'openai-compatible', baseUrl = 'http://localhost:1234/v1' },
+    }
+<
+Optional `apiKeyEnv` names an environment variable holding its key.
 
 ==============================================================================
 4. PRIVACY                                          *copilot-anymodel-privacy*

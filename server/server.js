@@ -14,6 +14,7 @@ import { modelId, parseModelId } from './lib/models.js';
 import * as anthropic from './providers/anthropic.js';
 import * as mock from './providers/mock.js';
 import * as ollama from './providers/ollama.js';
+import * as openai from './providers/openai.js';
 
 const VERSION = '0.1.0';
 const ACCEPT_COMMAND = { title: 'Accept', command: 'copilot-anymodel.accepted', arguments: [] };
@@ -23,18 +24,43 @@ function argValue(name) {
   return i >= 0 ? process.argv[i + 1] ?? null : null;
 }
 
-const registry = { anthropic, ollama, mock };
+// A provider module with fixed options, e.g. OpenRouter is the OpenAI module
+// pointed at another URL with another key.
+function preset(mod, options, auth, models = mod.models) {
+  return {
+    ...mod,
+    auth,
+    models,
+    createProvider: (args) => mod.createProvider({ ...args, options: { ...options, ...args.options } }),
+  };
+}
+
+const builtins = {
+  anthropic,
+  ollama,
+  mock,
+  openai: preset(openai, { api: 'responses', baseUrl: 'https://api.openai.com/v1' }, { apiKeyEnv: 'OPENAI_API_KEY' }),
+  openrouter: preset(openai, { api: 'chat', baseUrl: 'https://openrouter.ai/api/v1', requiresKey: true },
+    { apiKeyEnv: 'OPENROUTER_API_KEY' }, [{ id: 'openai/gpt-5.4-mini', modelName: 'openai/gpt-5.4-mini' }]),
+};
+
+// Built-in providers, plus any `providers.<name> = { type = 'openai-compatible', baseUrl = ... }`.
+function registryEntry(name) {
+  if (builtins[name]) return builtins[name];
+  const options = config.providers?.[name];
+  if (options?.type !== 'openai-compatible' || !options.baseUrl) return null;
+  return preset(openai, { api: 'chat', requiresKey: false, name }, { apiKeyEnv: options.apiKeyEnv ?? null }, []);
+}
 const keyDir = argValue('--key-dir');
 // Tests pin the provider list. Otherwise anthropic and ollama are on, plus any
 // provider configured under `providers`; `providers = { ollama = false }` turns one off.
 const pinned = process.env.COPILOT_ANYMODEL_PROVIDER?.split(',').filter(Boolean) ?? null;
-for (const name of pinned ?? []) if (!registry[name]) throw new Error(`unknown provider: ${name}`);
 
 const instances = new Map(); // name -> provider
 function getProvider(name) {
-  if (!registry[name]) return null;
+  const mod = registryEntry(name);
+  if (!mod) return null;
   if (!instances.has(name)) {
-    const mod = registry[name];
     const credentials = createCredentials({ keyFile: keyDir && mod.auth ? join(keyDir, name) : null, ...mod.auth });
     instances.set(name, mod.createProvider({ credentials, options: providerOptions(name) }));
   }
@@ -47,9 +73,10 @@ function providerOptions(name) {
 }
 
 function enabledProviders() {
-  if (pinned) return pinned;
-  const configured = Object.keys(config.providers ?? {}).filter((n) => registry[n] && n !== 'mock');
-  return [...new Set(['anthropic', 'ollama', ...configured])].filter((n) => config.providers?.[n] !== false);
+  if (pinned) return pinned.filter((n) => registryEntry(n));
+  const configured = Object.keys(config.providers ?? {}).filter((n) => registryEntry(n) && n !== 'mock');
+  // openai and openrouter only list models once their key is set.
+  return [...new Set(['anthropic', 'ollama', 'openai', 'openrouter', ...configured])].filter((n) => config.providers?.[n] !== false);
 }
 
 const TUNABLE = ['maxTokens', 'maxLines', 'debounceMs', 'linesBefore', 'linesAfter', 'alternatives'];
@@ -59,7 +86,7 @@ const TUNABLE = ['maxTokens', 'maxLines', 'debounceMs', 'linesBefore', 'linesAft
 function settingsFor(name) {
   const result = {};
   for (const key of TUNABLE) {
-    for (const source of [defaults, registry[name].defaults ?? {}, own, providerOptions(name)]) {
+    for (const source of [defaults, registryEntry(name).defaults ?? {}, own, providerOptions(name)]) {
       if (source[key] !== undefined && source[key] !== null) result[key] = source[key];
     }
   }
@@ -73,7 +100,7 @@ function currentModel() {
   const enabled = enabledProviders();
   if (parsed && enabled.includes(parsed.provider)) return parsed;
   const name = enabled[0];
-  return { provider: name, model: registry[name].models[0].id };
+  return { provider: name, model: registryEntry(name).models[0]?.id };
 }
 
 const defaults = {
@@ -247,7 +274,7 @@ conn.onRequest('initialize', (params) => {
 });
 
 function missingKey(name) {
-  const env = registry[name].auth?.apiKeyEnv;
+  const env = registryEntry(name)?.auth?.apiKeyEnv;
   return `No API key for ${name}. Run :Cop key ${name}${env ? ` (or set ${env})` : ''}.`;
 }
 

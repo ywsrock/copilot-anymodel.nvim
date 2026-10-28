@@ -318,3 +318,104 @@ test('ollama: cancelling a completion closes the request to Ollama', async (t) =
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(fake.requests.find((x) => x.body.prompt?.includes('SLOW')).closed, true);
 });
+
+// A stand-in for OpenAI: /models, /responses (rejects reasoning effort "none") and /chat/completions.
+async function fakeOpenAI(t) {
+  const requests = [];
+  const http = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const json = body ? JSON.parse(body) : {};
+      requests.push({ path: req.url, body: json, auth: req.headers.authorization });
+      const send = (events) => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const e of events) res.write(`data: ${JSON.stringify(e)}\n\n`);
+        res.end('data: [DONE]\n\n');
+      };
+      if (req.url === '/v1/models') {
+        res.end(JSON.stringify({ data: ['gpt-5.4-mini', 'text-embedding-3-small', 'gpt-4o-audio-preview', 'gpt-5.1-codex'].map((id) => ({ id })) }));
+      } else if (req.url === '/v1/responses' && json.reasoning?.effort === 'none') {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: "Unsupported value: 'reasoning.effort' does not support 'none' with this model." } }));
+      } else if (req.url === '/v1/responses') {
+        send([
+          { type: 'response.created' },
+          { type: 'response.output_text.delta', delta: 'Sure <completion>a * ' },
+          { type: 'response.output_text.delta', delta: 'b;</completion> and more text' },
+          { type: 'response.completed', response: { usage: { input_tokens: 40, output_tokens: 9 } } },
+        ]);
+      } else if (req.url === '/v1/chat/completions') {
+        send([{ choices: [{ delta: { content: '<completion>a / b;' } }] }, { choices: [{ delta: {} }], usage: { prompt_tokens: 30, completion_tokens: 4 } }]);
+      } else {
+        res.writeHead(404);
+        res.end('{}');
+      }
+    });
+  });
+  await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
+  t.after(() => http.close());
+  return { url: `http://127.0.0.1:${http.address().port}/v1`, requests };
+}
+
+async function openDoc(server, uri, text) {
+  server.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'javascript', version: 1, text } });
+}
+
+test('openai: Responses API, effort fallback, model filter, key required', async (t) => {
+  const fake = await fakeOpenAI(t);
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'openai', OPENAI_API_KEY: 'sk-test' });
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'openai/gpt-5.4-mini', debounceMs: 0, providers: { openai: { baseUrl: fake.url } } } } });
+
+  const models = (await server.request('copilot/models', {}).response).result;
+  assert.deepEqual(models.map((m) => m.id), ['openai/gpt-5.1-codex', 'openai/gpt-5.4-mini']);
+
+  const uri = 'file:///tmp/mul.js';
+  await openDoc(server, uri, 'function mul(a, b) {\n  return \n}\n');
+  const r = await server.request('textDocument/inlineCompletion', { textDocument: { uri }, position: { line: 1, character: 9 }, context: { triggerKind: 2 } }).response;
+  assert.equal(r.result.items[0].insertText, '  return a * b;');
+  const calls = fake.requests.filter((x) => x.path === '/v1/responses');
+  assert.deepEqual(calls.map((x) => x.body.reasoning?.effort), ['none', 'minimal']);
+  assert.equal(calls[1].body.max_output_tokens, 256 + 2048);
+  assert.equal(calls[1].auth, 'Bearer sk-test');
+  assert.equal(calls[1].body.store, false);
+});
+
+test('openai: without a key the provider stays out of the list and asks for one', async (t) => {
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'openai,mock', OPENAI_API_KEY: '' }, ['--key-dir', join(tmpdir(), 'cc-no-keys')]);
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'openai/gpt-5.4-mini', debounceMs: 0 } } });
+  const models = (await server.request('copilot/models', {}).response).result;
+  assert.ok(models.every((m) => m.provider === 'mock'));
+  const uri = 'file:///tmp/k.js';
+  await openDoc(server, uri, 'x\n');
+  await server.request('textDocument/inlineCompletion', { textDocument: { uri }, position: { line: 0, character: 1 }, context: { triggerKind: 2 } }).response;
+  const status = server.notifications.filter((n) => n.method === 'didChangeStatus').at(-1);
+  assert.match(status.params.message, /Cop key openai \(or set OPENAI_API_KEY\)/);
+});
+
+test('openai-compatible: a provider defined in settings uses Chat Completions', async (t) => {
+  const fake = await fakeOpenAI(t);
+  const server = startServer({ COPILOT_ANYMODEL_PROVIDER: 'local' });
+  t.after(() => server.close());
+  await server.request('initialize', {}).response;
+  server.notify('initialized', {});
+  server.notify('workspace/didChangeConfiguration', { settings: { anymodel: { model: 'local/gpt-5.4-mini', debounceMs: 0,
+    providers: { local: { type: 'openai-compatible', baseUrl: fake.url } } } } });
+  const models = (await server.request('copilot/models', {}).response).result;
+  // No filtering for compatible servers: they list what they serve.
+  assert.equal(models.length, 4);
+  assert.equal(models[0].provider, 'local');
+  const uri = 'file:///tmp/div.js';
+  await openDoc(server, uri, 'function div(a, b) {\n  return \n}\n');
+  const r = await server.request('textDocument/inlineCompletion', { textDocument: { uri }, position: { line: 1, character: 9 }, context: { triggerKind: 2 } }).response;
+  assert.equal(r.result.items[0].insertText, '  return a / b;');
+  const chat = fake.requests.find((x) => x.path === '/v1/chat/completions');
+  assert.deepEqual(chat.body.stop, ['</completion>']);
+  assert.equal(chat.auth, undefined);
+});

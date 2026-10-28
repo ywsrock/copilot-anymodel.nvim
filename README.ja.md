@@ -1,7 +1,7 @@
 # copilot-anymodel.nvim
 
 [copilot.vim](https://github.com/github/copilot.vim) の操作感のまま、裏のモデルを選べる Neovim プラグイン。
-現在は Claude と、Ollama 経由のローカルモデルに対応。OpenAI にも対応予定。
+Claude、OpenAI（Codex を含む）、OpenRouter、Ollama 経由のローカルモデル、OpenAI 互換の任意のサーバーに対応。
 
 ゴーストテキスト、`<Tab>` での受け入れ、候補の切り替え、パネルは copilot.vim がそのまま担当し、
 このプラグインは裏の language server を、選んだモデルを使うものに差し替える。
@@ -19,6 +19,7 @@
 - [copilot.vim](https://github.com/github/copilot.vim)
 - Claude を使う場合: クレジット残高のある Anthropic API キー（<https://console.anthropic.com>）
   ※ claude.ai の Pro / Max 契約には API 利用料は含まれない
+- OpenAI / OpenRouter を使う場合: そのサービスの API キー
 - ローカルモデルを使う場合: 起動中の [Ollama](https://ollama.com)（キー不要）
 
 サーバーは `dist/` に 1 ファイルで同梱しているので `npm install` は不要。
@@ -82,7 +83,7 @@ Plug 'ywsrock/copilot-anymodel.nvim'
 | `:Cop model [id]` | 設定済みの全プロバイダのモデルから選ぶ（例 `anthropic/claude-haiku-5-5`） |
 | `:Cop toggle` | 同梱サーバー ⇔ GitHub Copilot を切り替え |
 | `:Cop backend anymodel\|copilot` | 同梱サーバー / GitHub 純正サーバーを選ぶ |
-| `:Cop key [provider]` | プロバイダの API キーを保存（`anthropic`） |
+| `:Cop key [provider]` | プロバイダの API キーを保存（`anthropic`、`openai`、`openrouter` など） |
 | `:Cop status` | バックエンド、モデル、キーの読み込み元、パスを表示 |
 | `:Cop logout [provider]` | 保存した API キーを削除 |
 
@@ -120,6 +121,29 @@ require('copilot_anymodel').setup({
 |---|---|---|
 | `anthropic` | `:Cop key anthropic` | キーで使える全モデル（Models API から取得） |
 | `ollama` | Ollama を起動しておく | インストール済みで文章を生成できる全モデル |
+| `openai` | `:Cop key openai` | GPT・Codex の文章生成モデル（Responses API） |
+| `openrouter` | `:Cop key openrouter` | OpenRouter が提供する全モデル |
+| 任意の名前 | `type = 'openai-compatible'`（下記） | そのサーバーが返すモデル |
+
+キーが未設定のプロバイダは `:Cop model` に出ない。
+
+**OpenAI** は、Codex 系モデルが必須とする Responses API を使う。reasoning effort は
+モデルが受け付ける最も低い値（`none`、だめなら `minimal`、だめなら `low`）を自動で選ぶ。
+
+**OpenAI 互換サーバー**（LM Studio、vLLM、llama.cpp server、Ollama の `/v1` など）は、
+好きな名前で追加でき、Chat Completions API を使う:
+
+```lua
+server = {
+  providers = {
+    lmstudio = { type = 'openai-compatible', baseUrl = 'http://localhost:1234/v1' },
+    -- キーが要る場合: apiKeyEnv = 'MY_SERVER_KEY'、または :Cop key lmstudio
+  },
+},
+```
+
+モデルは `lmstudio/<モデル名>` として一覧に出る。Ollama 自体は `ollama` プロバイダの方がよい。
+FIM 方式を使うので、小さなローカルモデルでもチャット方式よりずっと正確に補完できる。
 
 **Ollama について。** `insert` 機能を持つモデル（一覧で `FIM` と表示。例 `qwen2.5-coder`）は
 カーソル前後を渡して間を埋める FIM 方式で、それ以外のモデルはチャット方式で補完する。
