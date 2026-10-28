@@ -6,11 +6,20 @@ through Ollama, or any OpenAI-compatible server.
 
 copilot.vim keeps doing what it does well (ghost text, `<Tab>` to accept,
 cycling, the panel). This plugin swaps the language server behind it for one
-that asks the model you choose, and `:Cop toggle` switches back to GitHub's
-server.
+that asks the model you choose.
 
-> Not affiliated with GitHub or Anthropic. "GitHub Copilot" is a trademark of
-> GitHub, Inc. You use your own Anthropic API key and pay Anthropic directly.
+- **Same keys, same UI**: nothing to relearn if you use copilot.vim today
+- **Any model, one list**: `:Cop model` shows every model of every provider
+  you have set up, fetched live; the choice is kept across sessions
+- **Back to GitHub Copilot in one key**: `:Cop toggle`
+- **Tuned for latency per model**: thinking/reasoning off where the model
+  allows it, prompt caching, streaming with early cut-off, fill-in-the-middle
+  for local coder models
+- **No `npm install`**: the server ships as one bundled file
+
+> Not affiliated with GitHub, Anthropic, OpenAI or Ollama. "GitHub Copilot" is
+> a trademark of GitHub, Inc. You use your own API keys and pay each provider
+> directly.
 
 [日本語](README.ja.md)
 
@@ -197,12 +206,14 @@ first token and 5 s for a one-line suggestion.
 copilot.vim talks LSP to a language server it starts from `g:copilot_command`.
 This plugin sets that to `node dist/server.mjs`, a small server that implements
 the requests copilot.vim sends (`textDocument/inlineCompletion`, the panel,
-status, models) and answers them with the Claude Messages API:
+status, models) and answers them with the provider of the selected model:
 
 - streaming, cut off as soon as enough lines arrived
-- the stable part of the file above the cursor is prompt-cached
-- thinking disabled and low effort, for latency
-- `$/cancelRequest` aborts the API call; a short debounce avoids calls while typing
+- Claude: the stable part of the file above the cursor is prompt-cached;
+  thinking off and low effort where the model allows it (read from the Models API)
+- OpenAI: the lowest reasoning effort the model accepts
+- Ollama: fill-in-the-middle for coder models, the model is loaded in advance
+- `$/cancelRequest` aborts the request; a short debounce avoids calls while typing
 
 Measured with Claude Haiku 5.5: 0.7–1.0 s to the first token, 0.8–1.3 s total.
 
@@ -215,8 +226,11 @@ CI runs weekly against its latest version.
 |---|---|
 | No suggestions | `:Copilot status`, then `:checkhealth copilot_anymodel` |
 | `No API key for anthropic` | `:Cop key anthropic` |
-| `Authentication failed (401)` | The key is wrong or revoked; run `:Cop key` again |
+| `No API key for openai` | `:Cop key openai` (or pick a model of another provider) |
+| `Authentication failed (401)` | The key is wrong or revoked; run `:Cop key <provider>` again |
 | `credit balance is too low` | Buy API credit in the Anthropic console |
+| No Ollama models in `:Cop model` | Start Ollama (`ollama serve`) and check `baseUrl` / `$OLLAMA_HOST` |
+| Ollama suggestions are slow | Expected on CPU; see the Ollama defaults above, or use a smaller model |
 | Odd suggestions | Start Neovim with `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` to see each prompt and raw reply |
 
 ## Development
@@ -226,7 +240,7 @@ npm ci
 npm run build      # server/ -> dist/server.mjs (commit the result)
 npm test           # unit + LSP tests with a mock model
 npm run test:e2e   # headless Neovim + real copilot.vim + mock model
-node server/bench.js [file] [line] [runs] [model]   # real latency
+node server/bench.js [file] [line] [runs] [provider/model]   # real latency (anthropic)
 ```
 
 ## License

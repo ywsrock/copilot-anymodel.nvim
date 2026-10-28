@@ -5,10 +5,16 @@ Claude、OpenAI（Codex を含む）、OpenRouter、Ollama 経由のローカル
 
 ゴーストテキスト、`<Tab>` での受け入れ、候補の切り替え、パネルは copilot.vim がそのまま担当し、
 このプラグインは裏の language server を、選んだモデルを使うものに差し替える。
-`:Cop toggle` で GitHub 純正のサーバーに戻せる。
 
-> GitHub・Anthropic とは無関係の非公式プラグイン。"GitHub Copilot" は GitHub, Inc. の商標。
-> 利用者自身の Anthropic API キーで動き、料金は Anthropic に直接支払う。
+- **キー操作も見た目も同じ**: copilot.vim を使っていれば覚え直すことはない
+- **全モデルを 1 つの一覧で**: `:Cop model` に、設定済みの全プロバイダのモデルがその場で取得されて並ぶ。選択は次回も引き継がれる
+- **GitHub Copilot にワンキーで戻せる**: `:Cop toggle`
+- **モデルごとに速さを調整**: 可能なら thinking / reasoning を無効化、プロンプトキャッシュ、
+  ストリーミングと早期打ち切り、ローカルのコード向けモデルには FIM 方式
+- **`npm install` 不要**: サーバーは 1 ファイルに同梱
+
+> GitHub・Anthropic・OpenAI・Ollama とは無関係の非公式プラグイン。"GitHub Copilot" は GitHub, Inc. の商標。
+> 利用者自身の API キーで動き、料金は各プロバイダに直接支払う。
 
 [English](README.md)
 
@@ -186,12 +192,14 @@ server = {
 
 copilot.vim は `g:copilot_command` で指定された language server と LSP で通信する。
 このプラグインはそこを `node dist/server.mjs` に設定する。このサーバーは copilot.vim が送るリクエスト
-（`textDocument/inlineCompletion`、パネル、状態、モデル一覧）を実装し、Claude の Messages API で答える。
+（`textDocument/inlineCompletion`、パネル、状態、モデル一覧）を実装し、選んだモデルのプロバイダで答える。
 
 - ストリーミングで受け、必要な行数が揃った時点で打ち切る
-- カーソルより上の変わりにくい部分をプロンプトキャッシュに乗せる
-- 遅延を減らすため thinking 無効・effort low
-- `$/cancelRequest` で API 呼び出しを中断し、短いデバウンスで入力中の呼び出しを抑える
+- Claude: カーソルより上の変わりにくい部分をプロンプトキャッシュに乗せる。
+  モデルが許す範囲で thinking 無効・effort low（Models API の情報から判断）
+- OpenAI: モデルが受け付ける最も低い reasoning effort
+- Ollama: コード向けモデルには FIM 方式、モデルは事前に読み込む
+- `$/cancelRequest` でリクエストを中断し、短いデバウンスで入力中の呼び出しを抑える
 
 Claude Haiku 5.5 での実測: 最初のトークンまで 0.7〜1.0 秒、完了まで 0.8〜1.3 秒。
 
@@ -204,8 +212,11 @@ CI で毎週、最新の copilot.vim との組み合わせをテストしてい�
 |---|---|
 | 候補が出ない | `:Copilot status`、次に `:checkhealth copilot_anymodel` |
 | `No API key for anthropic` | `:Cop key anthropic` |
-| `Authentication failed (401)` | キーが誤り・無効。`:Cop key` をやり直す |
+| `No API key for openai` | `:Cop key openai`（または別のプロバイダのモデルを選ぶ） |
+| `Authentication failed (401)` | キーが誤り・無効。`:Cop key <provider>` をやり直す |
 | `credit balance is too low` | Anthropic のコンソールでクレジットを購入 |
+| `:Cop model` に Ollama のモデルが出ない | Ollama を起動（`ollama serve`）し、`baseUrl` / `$OLLAMA_HOST` を確認 |
+| Ollama の候補が遅い | CPU では想定どおり。上の Ollama の既定値を調整するか、小さいモデルを使う |
 | おかしな候補が出る | `COPILOT_ANYMODEL_DUMP=/tmp/dump.txt nvim` で起動し、送ったプロンプトと生の応答を確認 |
 
 ## 開発
@@ -215,7 +226,7 @@ npm ci
 npm run build      # server/ -> dist/server.mjs（結果もコミットする）
 npm test           # mock モデルで単体テストと LSP の往復テスト
 npm run test:e2e   # headless Neovim + 本物の copilot.vim + mock モデル
-node server/bench.js [file] [line] [runs] [model]   # 実際のレイテンシ計測
+node server/bench.js [file] [line] [runs] [provider/model]   # 実際のレイテンシ計測（anthropic）
 ```
 
 ## ライセンス

@@ -2,7 +2,19 @@
   "name": "copilot-anymodel.nvim",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude-powered inline completion for Neovim through copilot.vim",
+  "description": "Keep the copilot.vim UI, pick the model behind it: Claude, OpenAI, OpenRouter, Ollama or any OpenAI-compatible server",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ywsrock/copilot-anymodel.nvim"
+  },
+  "keywords": [
+    "neovim",
+    "copilot",
+    "claude",
+    "openai",
+    "ollama",
+    "completion"
+  ],
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
